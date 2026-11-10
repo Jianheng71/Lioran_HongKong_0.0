@@ -1,29 +1,25 @@
 # Lioran
 
-Lioran 是一个本地运行的无代码网页数据提取工具：粘贴公开网页链接，用一句话描述需要的数据，得到表格预览并导出 Excel。
+Lioran is a local, no-code web data extraction tool. Paste a public webpage URL, describe the data you need in one sentence, preview the results, and export them to Excel.
 
-> **免责声明：** 仅用于公开数据。使用前请遵守目标网站的服务条款、robots.txt 及当地法律法规。Lioran 不会尝试绕过登录、付费墙、验证码或安全挑战。
+> **Disclaimer:** For public data only. Follow the target website's terms of service, robots.txt, and applicable laws. Lioran does not attempt to bypass logins, paywalls, CAPTCHAs, or security challenges.
 
-## 效果预览
+## Quick start
 
-<!-- TODO: 添加应用截图 -->
+Install [Python 3.11+](https://www.python.org/downloads/) and [Ollama](https://ollama.com/download), then download and extract the package for your OS from [GitHub Releases](https://github.com/Jianheng71/Lioran_HongKong_0.0/releases).
 
-## 快速开始
+**macOS:** Double-click `setup.command`, then double-click `start.command` after setup finishes.
 
-先安装 [Python 3.11+](https://www.python.org/downloads/) 和 [Ollama](https://ollama.com/download)，然后从 [GitHub Releases](https://github.com/Jianheng71/Lioran_HongKong_0.0/releases) 下载对应系统的安装包并解压。
+**Windows:** Double-click `setup.bat`, then double-click `start.bat` after setup finishes.
 
-**macOS：** 双击 `setup.command`；安装完成后双击 `start.command`。
+Setup creates an isolated Python environment, installs app dependencies and browsers, and downloads the Hermes model (about 4.7 GB). Open <http://localhost:8000>. Internet access is required for the initial setup; system Python and Ollama must be installed first.
 
-**Windows：** 双击 `setup.bat`；安装完成后双击 `start.bat`。
+## Manual local setup
 
-安装过程会创建独立 Python 环境、安装应用依赖与浏览器，并下载 Hermes 模型（约 4.7 GB）。打开 <http://localhost:8000> 使用。首次运行安装器需联网；系统级 Python 和 Ollama 需预先安装。
-
-## 手动本地运行
-
-需要 Python 3.11 或更新版本、[Ollama](https://ollama.com/) 和 Chromium。
+You need Python 3.11 or newer, [Ollama](https://ollama.com/), and Chromium.
 
 ```bash
-# 1. 安装依赖并准备浏览器
+# 1. Install dependencies and the browser
 git clone https://github.com/Jianheng71/Lioran_HongKong_0.0.git
 cd Lioran_HongKong_0.0
 python3 -m venv .venv && source .venv/bin/activate
@@ -31,48 +27,48 @@ pip install -r requirements.txt
 playwright install chromium
 patchright install chromium
 
-# 2. 启动本地模型
+# 2. Prepare the local model
 ollama pull hermes3:8b
-# 确保 Ollama 服务正在运行；如需手动启动，请在另一个终端运行 ollama serve
+# Ensure Ollama is running; if needed, start `ollama serve` in another terminal
 
-# 3. 启动应用
+# 3. Start the application
 cp .env.example .env
 python -m app.main
 ```
 
-打开 <http://localhost:8000>。Ollama 必须在本机运行；除了访问用户指定的公开目标网页，页面理解、规则生成和数据处理均在本地完成，不调用付费 AI API。
+Open <http://localhost:8000>. Ollama must be running locally. Page understanding, rule generation, and data processing run locally without paid AI APIs; the app only makes network requests to the public webpage requested by the user.
 
-## Docker 一键运行
+## One-command Docker setup
 
-安装并启动 Docker Desktop 后，在项目目录执行：
+Install and start Docker Desktop, then run this in the project folder:
 
 ```bash
 docker compose up
 ```
 
-首次启动会构建应用容器、启动容器内的 Ollama 并下载 Hermes 模型（约 4.7 GB），之后启动 Lioran。模型保存在 Docker volume 中。打开 <http://localhost:8000> 使用；按 `Ctrl+C` 停止。
+On the first run, Compose builds the app image, starts Ollama in a container, and downloads the Hermes model (about 4.7 GB) before starting Lioran. The model is persisted in a Docker volume. Open <http://localhost:8000>; press `Ctrl+C` to stop.
 
-## 技术栈与工作流程
+## Stack and workflow
 
-- **Crawl4AI**：读取单页、生成 Markdown，并通过 `JsonCssExtractionStrategy.generate_schema(html=...)` 基于精简 HTML 骨架生成 CSS 规则。
-- **Hermes 3 8B / Ollama**：本地推理。Markdown 用于理解语义，HTML 骨架仅保留最多三个重复卡片的标签和 class，字段选择器必须在骨架中真实存在。
-- **Scrapling**：按已校验的 CSS 规则提取页面数据；高速请求无结果时尝试其基于 Patchright 的浏览器抓取器。
-- **FastAPI + 原生 HTML/CSS/JavaScript**：静态单页界面、预览与 Excel 下载。没有登录、用户系统或翻页功能。
+- **Crawl4AI** reads one page, produces Markdown, and generates CSS rules through `JsonCssExtractionStrategy.generate_schema(html=...)` from a compact HTML skeleton.
+- **Hermes 3 8B / Ollama** provides local inference. Markdown conveys page semantics; the skeleton contains at most three repeated cards with tags and classes. Selectors must exist in the skeleton.
+- **Scrapling** extracts data with validated CSS rules and can fall back from fast HTTP fetching to its Patchright-based browser fetcher.
+- **FastAPI + vanilla HTML/CSS/JavaScript** serves the single-page interface, previews, and Excel downloads. There is no login, user system, or pagination.
 
-目前每个任务只抓取一个公开页面。结果在进程内临时保存，默认一小时后过期。
+Each task currently scrapes one public page. Results are held in process memory and expire after one hour by default.
 
-## 配置
+## Configuration
 
-复制 `.env.example` 到 `.env` 后可调整 Ollama 地址、模型、重试次数和超时。默认模型为 `hermes3:8b`，需先通过 Ollama 下载。
+Copy `.env.example` to `.env` to adjust the Ollama URL, model, retries, and timeouts. The default model is `hermes3:8b`; pull it through Ollama first.
 
-## 测试
+## Tests
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-`test_hermes_json.py` 会连接本地 Ollama 连续生成 10 次；没有运行 Ollama 时会跳过。列表页和详情页测试验证 HTML 骨架及值清洗规则，不会伪装成真实网络抓取。真实站点测试需使用你有权访问且允许自动抓取的公开页面。
+`test_hermes_json.py` connects to local Ollama and generates a schema ten times; it is skipped when Ollama is unavailable. The list/detail tests cover HTML skeleton and value-cleaning behavior without pretending to perform a live scrape. Live-site tests should use public pages you are authorized to access and that permit automated fetching.
 
-## 许可
+## License
 
-本项目以 MIT License 发布。Crawl4AI 使用 Apache-2.0；请分别遵守各依赖的许可证。
+This project is released under the MIT License. Crawl4AI is Apache-2.0; observe the licenses of all dependencies.
