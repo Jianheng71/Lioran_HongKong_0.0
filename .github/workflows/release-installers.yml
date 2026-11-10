@@ -105,8 +105,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: installers
-          pattern: "*-installer"
+          pattern: "*-installer*"
           merge-multiple: true
+      - name: Verify installer assets
+        run: |
+          test -s installers/LioranSetup.exe
+          test -s installers/Lioran.dmg
+          test -s installers/Lioran-Intel.dmg
       - name: Publish installers
         uses: softprops/action-gh-release@v2
         with:
