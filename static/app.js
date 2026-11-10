@@ -8,6 +8,17 @@ const copy = {
     requirementLabel: "你想提取什么？",
     start: "开始抓取",
     loading: "AI 正在看懂页面...",
+    maxPagesLabel: "最大页数",
+    crawlLimitHint: "同域名 · 最多 3 层 · 5 个并发",
+    stop: "停止",
+    stopping: "正在停止当前任务...",
+    preparing: "正在准备",
+    pagesCrawled: "页面",
+    sectionsCrawled: "栏目",
+    rowsFound: "条数据",
+    crawlSummary: "已抓取 {pages} 页、发现 {sections} 个栏目",
+    stoppedSummary: "已停止 · 已抓取 {pages} 页、发现 {sections} 个栏目",
+    mapping: "正在整理字段和合并结果...",
     resultsEyebrow: "提取结果",
     totalPrefix: "共抓到",
     totalSuffix: "条",
@@ -16,7 +27,7 @@ const copy = {
     rowHint: "点选一行可以告诉 Lioran 哪条记录才是正确结果。",
     disclaimer: "仅用于公开数据，请遵守目标网站条款与当地法律法规。",
     placeholderUrl: "https://example.com/news",
-    placeholderRequirement: "例如：我要标题、发布时间和链接",
+    placeholderRequirement: "例如：我要序号、标题、链接、时间、摘要、栏目名称和类别",
     working: "正在读取网页并生成表格，请稍候...",
     feedback: "正在根据你选择的行重新识别...",
     failed: "暂时无法完成，请检查链接后重试。",
@@ -32,6 +43,17 @@ const copy = {
     requirementLabel: "What would you like to extract?",
     start: "Start scraping",
     loading: "AI is understanding the page...",
+    maxPagesLabel: "Maximum pages",
+    crawlLimitHint: "Same host · up to 3 levels · 5 concurrent pages",
+    stop: "Stop",
+    stopping: "Stopping the current crawl...",
+    preparing: "Preparing",
+    pagesCrawled: "pages",
+    sectionsCrawled: "sections",
+    rowsFound: "records",
+    crawlSummary: "Crawled {pages} pages and found {sections} sections",
+    stoppedSummary: "Stopped · crawled {pages} pages and found {sections} sections",
+    mapping: "Mapping fields and merging results...",
     resultsEyebrow: "Results",
     totalPrefix: "Found",
     totalSuffix: "items",
@@ -54,6 +76,12 @@ const submitButton = document.querySelector("#submit-button");
 const buttonLabel = document.querySelector("#button-label");
 const spinner = document.querySelector("#spinner");
 const statusMessage = document.querySelector("#status-message");
+const stopButton = document.querySelector("#stop-button");
+const progressPanel = document.querySelector("#progress-panel");
+const progressBar = document.querySelector(".progress-track");
+const progressFill = document.querySelector("#progress-fill");
+const progressPercent = document.querySelector("#progress-percent");
+const progressSection = document.querySelector("#progress-section");
 const errorPanel = document.querySelector("#error-panel");
 const errorMessage = document.querySelector("#error-message");
 const resultsPanel = document.querySelector("#results-panel");
@@ -61,6 +89,7 @@ const table = document.querySelector("#results-table");
 const langButton = document.querySelector("#language-toggle");
 let language = "zh";
 let activeTaskId = null;
+let activeCrawlId = null;
 let requestInProgress = false;
 
 function t(key) {
@@ -82,9 +111,23 @@ function renderLanguage() {
 function setLoading(loading, message = "") {
   requestInProgress = loading;
   submitButton.disabled = loading;
+  stopButton.disabled = !loading;
+  stopButton.classList.toggle("hidden", !loading);
   buttonLabel.textContent = loading ? t("loading") : t("start");
   spinner.classList.toggle("hidden", !loading);
   statusMessage.textContent = message;
+}
+
+function updateProgress(progress) {
+  const percent = Math.max(0, Math.min(100, Number(progress.progress) || 0));
+  progressPanel.classList.remove("hidden");
+  progressFill.style.width = `${percent}%`;
+  progressPercent.textContent = `${percent}%`;
+  progressBar.setAttribute("aria-valuenow", String(percent));
+  progressSection.textContent = progress.current_section || t("preparing");
+  document.querySelector("#progress-pages").textContent = String(progress.pages_crawled || 0);
+  document.querySelector("#progress-sections").textContent = String(progress.sections_crawled || 0);
+  document.querySelector("#progress-rows").textContent = String(progress.rows_count || 0);
 }
 
 function showError(message) {
@@ -107,7 +150,7 @@ async function api(url, options = {}) {
   return body.data;
 }
 
-function renderTable(columns, rows, total, taskId) {
+function renderTable(columns, rows, total, taskId, feedbackEnabled = true) {
   const thead = table.querySelector("thead");
   const tbody = table.querySelector("tbody");
   thead.replaceChildren();
@@ -132,6 +175,7 @@ function renderTable(columns, rows, total, taskId) {
       tr.append(td);
     });
     const sendFeedback = async () => {
+      if (!feedbackEnabled) return;
       if (requestInProgress || tr.classList.contains("selected")) return;
       tbody.querySelectorAll("tr").forEach((item) => item.classList.remove("selected"));
       tr.classList.add("selected");
@@ -152,47 +196,87 @@ function renderTable(columns, rows, total, taskId) {
         setLoading(false);
       }
     };
-    tr.addEventListener("click", sendFeedback);
-    tr.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        sendFeedback();
-      }
-    });
+    if (feedbackEnabled) {
+      tr.addEventListener("click", sendFeedback);
+      tr.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          sendFeedback();
+        }
+      });
+    } else {
+      tr.removeAttribute("tabindex");
+      tr.removeAttribute("aria-label");
+    }
     tbody.append(tr);
   });
 
   document.querySelector("#total-count").textContent = String(total);
+  document.querySelector("#crawl-summary").classList.add("hidden");
   resultsPanel.classList.remove("hidden");
 }
 
-async function startScrape(event) {
+async function startCrawl(event) {
   event.preventDefault();
   if (requestInProgress) return;
   clearError();
   resultsPanel.classList.add("hidden");
+  progressPanel.classList.add("hidden");
+  activeCrawlId = null;
   setLoading(true, t("working"));
   const values = new FormData(form);
   try {
-    const result = await api("/api/scrape", {
+    let progress = await api("/api/crawl", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         url: values.get("url"),
         requirement: values.get("requirement"),
-        max_pages: 1,
+        max_pages: Number(values.get("max_pages")),
       }),
     });
+    activeCrawlId = progress.crawl_id;
+    updateProgress(progress);
+    while (!["completed", "stopped", "error"].includes(progress.status)) {
+      await new Promise((resolve) => window.setTimeout(resolve, 900));
+      progress = await api(`/api/crawl/${encodeURIComponent(activeCrawlId)}`);
+      updateProgress(progress);
+      if (progress.status === "mapping") statusMessage.textContent = t("mapping");
+      if (progress.status === "stopping") statusMessage.textContent = t("stopping");
+    }
+    if (progress.status === "error") throw new Error(progress.error || t("failed"));
+    if (!progress.task_id) throw new Error(t("failed"));
+    const result = await api(`/api/preview?task_id=${encodeURIComponent(progress.task_id)}`);
     activeTaskId = result.task_id;
-    renderTable(result.columns, result.preview_rows, result.total, result.task_id);
+    renderTable(result.columns, result.rows, result.total, result.task_id, false);
+    const summaryKey = progress.status === "stopped" ? "stoppedSummary" : "crawlSummary";
+    document.querySelector("#crawl-summary").textContent = t(summaryKey)
+      .replace("{pages}", String(progress.pages_crawled))
+      .replace("{sections}", String(progress.sections_crawled));
+    document.querySelector("#crawl-summary").classList.remove("hidden");
   } catch (error) {
     showError(error.message);
   } finally {
+    activeCrawlId = null;
     setLoading(false);
   }
 }
 
-form.addEventListener("submit", startScrape);
+form.addEventListener("submit", startCrawl);
+stopButton.addEventListener("click", async () => {
+  if (!activeCrawlId || stopButton.disabled) return;
+  stopButton.disabled = true;
+  statusMessage.textContent = t("stopping");
+  try {
+    const progress = await api(`/api/crawl/${encodeURIComponent(activeCrawlId)}/stop`, {
+      method: "POST",
+    });
+    updateProgress(progress);
+  } catch (error) {
+    showError(error.message || t("failed"));
+    stopButton.disabled = false;
+  }
+});
 langButton.addEventListener("click", () => {
   language = language === "zh" ? "en" : "zh";
   renderLanguage();
@@ -211,11 +295,15 @@ document.querySelector("#download-button").addEventListener("click", async () =>
       throw new Error(body?.msg || t("downloadError"));
     }
     const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
-    anchor.href = URL.createObjectURL(blob);
+    anchor.href = objectUrl;
     anchor.download = `lioran-${activeTaskId.slice(0, 8)}.xlsx`;
+    anchor.hidden = true;
+    document.body.append(anchor);
     anchor.click();
-    URL.revokeObjectURL(anchor.href);
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
   } catch (error) {
     showError(error.message || t("downloadError"));
   }

@@ -16,8 +16,9 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.exporter import export_xlsx
 from app.fetcher import ScrapeError, ensure_public_url
-from app.models import FeedbackRequest, ScrapeRequest, ScrapeTask
+from app.models import CrawlJob, CrawlRequest, FeedbackRequest, ScrapeRequest, ScrapeTask
 from app.runner import scrape
+from app.site_crawler import crawl_site
 
 ROOT = Path(__file__).resolve().parent.parent
 if getattr(sys, "frozen", False) and not (ROOT / "static").is_dir():
@@ -29,6 +30,8 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 logger = logging.getLogger(__name__)
 
 _tasks: dict[str, ScrapeTask] = {}
+_crawl_jobs: dict[str, CrawlJob] = {}
+_crawl_job_tasks: dict[str, asyncio.Task] = {}
 _task_lock = threading.Lock()
 _request_times: dict[str, deque[datetime]] = defaultdict(deque)
 _rate_lock = threading.Lock()
@@ -47,6 +50,13 @@ def _store_task(task: ScrapeTask) -> None:
         for key in expired:
             del _tasks[key]
         _tasks[task.task_id] = task
+    expired_jobs = [
+        key
+        for key, job in _crawl_jobs.items()
+        if job.created_at < cutoff and job.status in {"completed", "stopped", "error"}
+    ]
+    for key in expired_jobs:
+        _crawl_jobs.pop(key, None)
 
 
 def _get_task(task_id: str) -> ScrapeTask:
@@ -60,6 +70,50 @@ def _get_task(task_id: str) -> ScrapeTask:
     if task is None:
         raise HTTPException(status_code=404, detail="结果不存在或已过期，请重新抓取")
     return task
+
+
+def _crawl_status(job: CrawlJob) -> dict:
+    if job.status in {"completed", "stopped", "error"}:
+        progress = 100
+    elif job.status == "mapping":
+        progress = 98
+    else:
+        progress = min(95, int(job.pages_crawled / job.max_pages * 100))
+    return {
+        "crawl_id": job.crawl_id,
+        "status": job.status,
+        "pages_crawled": job.pages_crawled,
+        "list_pages": job.list_pages,
+        "detail_pages": job.detail_pages,
+        "max_pages": job.max_pages,
+        "sections_crawled": len(job.sections),
+        "rows_count": job.rows_count,
+        "current_section": job.current_section,
+        "progress": progress,
+        "task_id": job.result_task_id,
+        "error": job.error,
+    }
+
+
+async def _run_crawl_job(job: CrawlJob) -> None:
+    try:
+        task = await crawl_site(job)
+        _store_task(task)
+        job.result_task_id = task.task_id
+        job.status = "stopped" if job.stop_requested else "completed"
+    except ScrapeError as error:
+        job.error = str(error)
+        job.status = "error"
+    except Exception as error:
+        logger.error(
+            "Site crawl failed",
+            exc_info=(type(error), error, error.__traceback__),
+        )
+        job.error = "整站抓取失败，请稍后重试"
+        job.status = "error"
+    finally:
+        job.current_section = ""
+        _crawl_job_tasks.pop(job.crawl_id, None)
 
 
 def _check_rate_limit(client_ip: str) -> None:
@@ -138,6 +192,43 @@ async def create_scrape(payload: ScrapeRequest, request: Request) -> dict:
             "schema": task.schema,
         }
     )
+
+
+@app.post("/api/crawl")
+async def create_crawl(payload: CrawlRequest, request: Request) -> dict:
+    """Start a bounded background crawl and return its progress identifier."""
+    _check_rate_limit(request.client.host if request.client else "unknown")
+    try:
+        url = await asyncio.to_thread(ensure_public_url, str(payload.url))
+    except ScrapeError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from None
+    job = CrawlJob(
+        url=url,
+        requirement=payload.requirement,
+        max_pages=payload.max_pages,
+    )
+    _crawl_jobs[job.crawl_id] = job
+    _crawl_job_tasks[job.crawl_id] = asyncio.create_task(_run_crawl_job(job))
+    return _envelope(_crawl_status(job))
+
+
+@app.get("/api/crawl/{crawl_id}")
+async def crawl_status(crawl_id: str) -> dict:
+    job = _crawl_jobs.get(crawl_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="抓取任务不存在或已过期")
+    return _envelope(_crawl_status(job))
+
+
+@app.post("/api/crawl/{crawl_id}/stop")
+async def stop_crawl(crawl_id: str) -> dict:
+    job = _crawl_jobs.get(crawl_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="抓取任务不存在或已过期")
+    if job.status not in {"completed", "stopped", "error"}:
+        job.stop_requested = True
+        job.status = "stopping"
+    return _envelope(_crawl_status(job), msg="已请求停止抓取")
 
 
 @app.get("/api/preview")
