@@ -8,7 +8,17 @@ Lioran is a local, no-code web data extraction tool. Paste a public webpage URL,
 
 <!-- TODO: Add an application screenshot -->
 
-## Run locally (3 steps)
+## Quick start
+
+Install and start [Ollama](https://ollama.com/download) first.
+
+**macOS / Linux:** Open a terminal in the project folder and run `./setup.sh`, then `./start.sh`. The setup script creates a virtual environment, installs Python dependencies and browsers, and downloads the Hermes model.
+
+**Windows:** Install and start Ollama, then double-click `setup.bat`. When it finishes, double-click `start.bat`.
+
+Open <http://localhost:8000>.
+
+## Manual local setup
 
 You need Python 3.11 or newer, [Ollama](https://ollama.com/), and Chromium.
 
@@ -32,15 +42,15 @@ python -m app.main
 
 Open <http://localhost:8000>. Ollama must be running locally. Page understanding, rule generation, and data processing run locally without paid AI APIs; the app only makes network requests to the public webpage requested by the user.
 
-## Docker
+## One-command Docker setup
 
-Start Ollama on the host, then run:
+Install and start Docker Desktop, then run this in the project folder:
 
 ```bash
-docker compose up --build
+docker compose up
 ```
 
-Open <http://localhost:8000>. Docker Compose connects to host Ollama at `host.docker.internal:11434`; Chromium is installed during the first build.
+On the first run, Compose builds the app image, starts Ollama in a container, and downloads the Hermes model (about 4.7 GB) before starting Lioran. The model is persisted in a Docker volume. Open <http://localhost:8000>; press `Ctrl+C` to stop.
 
 ## Stack and workflow
 

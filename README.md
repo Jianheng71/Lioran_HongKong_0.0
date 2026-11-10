@@ -8,7 +8,17 @@ Lioran 是一个本地运行的无代码网页数据提取工具：粘贴公开�
 
 <!-- TODO: 添加应用截图 -->
 
-## 本地运行（3 步）
+## 快速开始
+
+先安装并启动 [Ollama](https://ollama.com/download)。
+
+**macOS / Linux：** 在项目目录打开终端，运行 `./setup.sh`；完成后运行 `./start.sh`。安装脚本会创建虚拟环境、安装 Python 依赖和浏览器，并下载 Hermes 模型。
+
+**Windows：** 先安装并启动 Ollama，然后双击 `setup.bat`；完成后双击 `start.bat`。
+
+打开 <http://localhost:8000> 使用。
+
+## 手动本地运行
 
 需要 Python 3.11 或更新版本、[Ollama](https://ollama.com/) 和 Chromium。
 
@@ -32,15 +42,15 @@ python -m app.main
 
 打开 <http://localhost:8000>。Ollama 必须在本机运行；除了访问用户指定的公开目标网页，页面理解、规则生成和数据处理均在本地完成，不调用付费 AI API。
 
-## Docker
+## Docker 一键运行
 
-确保 Ollama 已在宿主机运行，然后执行：
+安装并启动 Docker Desktop 后，在项目目录执行：
 
 ```bash
-docker compose up --build
+docker compose up
 ```
 
-在 <http://localhost:8000> 使用。Docker Compose 通过 `host.docker.internal:11434` 连接宿主机上的 Ollama；首次构建会安装 Chromium。
+首次启动会构建应用容器、启动容器内的 Ollama 并下载 Hermes 模型（约 4.7 GB），之后启动 Lioran。模型保存在 Docker volume 中。打开 <http://localhost:8000> 使用；按 `Ctrl+C` 停止。
 
 ## 技术栈与工作流程
 
