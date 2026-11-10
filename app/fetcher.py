@@ -4,6 +4,8 @@ import asyncio
 import ipaddress
 import re
 import socket
+import threading
+import time
 import truststore
 
 truststore.inject_into_ssl()
@@ -21,6 +23,9 @@ from app.config import settings
 USER_AGENT = "Lioran/0.1 (+https://github.com/Jianheng71/Lioran_HongKong_0.0)"
 REDIRECT_CODES = {301, 302, 303, 307, 308}
 MAX_REDIRECTS = 5
+ROBOTS_CACHE_SECONDS = 3600
+_robots_cache: dict[str, tuple[float, RobotFileParser]] = {}
+_robots_cache_lock = threading.Lock()
 
 
 class ScrapeError(Exception):
@@ -67,36 +72,52 @@ def check_robots(url: str) -> None:
     ensure_public_url(url)
     parsed = urlsplit(url)
     robots_url = urlunsplit((parsed.scheme, parsed.netloc, "/robots.txt", "", ""))
-    parser = RobotFileParser()
-    try:
-        request = Request(robots_url, headers={"User-Agent": USER_AGENT})
-        opener = build_opener(_PublicRedirectHandler)
-        with opener.open(request, timeout=min(settings.request_timeout, 10)) as response:
-            lines = response.read(512_000).decode("utf-8", errors="replace").splitlines()
-        parser.set_url(robots_url)
-        parser.parse(lines)
-    except HTTPError as error:
-        if error.code == 404:
-            parser.parse([])
-        elif error.code in {401, 403}:
-            raise ScrapeError("该网站禁止抓取") from None
-        else:
+    with _robots_cache_lock:
+        cached = _robots_cache.get(robots_url)
+    if cached and time.monotonic() - cached[0] < ROBOTS_CACHE_SECONDS:
+        parser = cached[1]
+    else:
+        parser = RobotFileParser()
+        try:
+            request = Request(robots_url, headers={"User-Agent": USER_AGENT})
+            opener = build_opener(_PublicRedirectHandler)
+            with opener.open(request, timeout=min(settings.request_timeout, 10)) as response:
+                lines = response.read(512_000).decode("utf-8", errors="replace").splitlines()
+            parser.set_url(robots_url)
+            parser.parse(lines)
+        except HTTPError as error:
+            if error.code == 404:
+                parser.parse([])
+            elif error.code in {401, 403}:
+                raise ScrapeError("该网站禁止抓取") from None
+            else:
+                raise ScrapeError("暂时无法检查网站抓取规则，请稍后再试") from None
+        except (OSError, URLError, TimeoutError, ValueError):
             raise ScrapeError("暂时无法检查网站抓取规则，请稍后再试") from None
-    except (OSError, URLError, TimeoutError, ValueError):
-        raise ScrapeError("暂时无法检查网站抓取规则，请稍后再试") from None
+        with _robots_cache_lock:
+            _robots_cache[robots_url] = (time.monotonic(), parser)
     if not parser.can_fetch(USER_AGENT, url):
         raise ScrapeError("该网站禁止抓取")
 
 
-def fetch_page(url: str, timeout: int | None = None, force_stealth: bool = False):
+def fetch_page(
+    url: str,
+    timeout: int | None = None,
+    force_stealth: bool = False,
+    allowed_hosts: set[str] | None = None,
+):
     """优先使用 Scrapling 高速请求，必要时切换到浏览器抓取器。"""
     current = ensure_public_url(url)
     timeout = timeout or settings.request_timeout
+    if allowed_hosts and urlsplit(current).hostname not in allowed_hosts:
+        raise ScrapeError("抓取链接超出了起始网站域名范围")
     if force_stealth:
-        response = _fetch_stealthy(current, timeout)
+        response = _fetch_stealthy(current, timeout, allowed_hosts)
         _reject_challenge(response)
         final_url = str(getattr(response, "url", current))
         ensure_public_url(final_url)
+        if allowed_hosts and urlsplit(final_url).hostname not in allowed_hosts:
+            raise ScrapeError("网页重定向到了起始网站以外的域名")
         return response
     for _ in range(MAX_REDIRECTS + 1):
         ensure_public_url(current)
@@ -115,6 +136,8 @@ def fetch_page(url: str, timeout: int | None = None, force_stealth: bool = False
             if not location:
                 break
             next_url = ensure_public_url(urljoin(current, location))
+            if allowed_hosts and urlsplit(next_url).hostname not in allowed_hosts:
+                raise ScrapeError("网页重定向到了起始网站以外的域名")
             check_robots(next_url)
             current = next_url
             continue
@@ -122,23 +145,28 @@ def fetch_page(url: str, timeout: int | None = None, force_stealth: bool = False
             raise ScrapeError("网页暂时无法访问，请确认链接有效且无需登录")
         _reject_challenge(response)
         if not _has_meaningful_content(response):
-            response = _fetch_stealthy(current, timeout)
+            response = _fetch_stealthy(current, timeout, allowed_hosts)
             _reject_challenge(response)
         final_url = getattr(response, "url", current)
         ensure_public_url(str(final_url))
+        if allowed_hosts and urlsplit(str(final_url)).hostname not in allowed_hosts:
+            raise ScrapeError("网页重定向到了起始网站以外的域名")
         return response
     raise ScrapeError("网页重定向次数过多或目标地址不安全")
 
 
-def _fetch_stealthy(url: str, timeout: int):
+def _fetch_stealthy(url: str, timeout: int, allowed_hosts: set[str] | None = None):
     try:
+        async def page_setup(page, **kwargs) -> None:
+            await guard_public_requests(page, allowed_hosts=allowed_hosts)
+
         return StealthyFetcher.fetch(
             url,
             headless=True,
             timeout=timeout * 1000,
             useragent=USER_AGENT,
             solve_cloudflare=False,
-            page_setup=guard_public_requests,
+            page_setup=page_setup,
             retries=settings.max_retries,
             retry_delay=1,
         )
@@ -148,11 +176,14 @@ def _fetch_stealthy(url: str, timeout: int):
         raise ScrapeError("网页加载失败，请换一个公开页面试试") from None
 
 
-async def guard_public_requests(page, **_) -> None:
+async def guard_public_requests(page, allowed_hosts: set[str] | None = None, **_) -> None:
     """Block browser navigation to private addresses and non-web protocols."""
     async def guard(route) -> None:
         target = urlsplit(route.request.url)
         if target.scheme not in {"http", "https"}:
+            await route.abort()
+            return
+        if allowed_hosts and target.hostname not in allowed_hosts:
             await route.abort()
             return
         try:

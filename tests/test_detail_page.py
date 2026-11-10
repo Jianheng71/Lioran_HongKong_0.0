@@ -1,7 +1,10 @@
+from io import BytesIO
 import unittest
-
 from app.cleaner import clean_html, clean_value, has_main_content, is_login_or_paywall
+from app.exporter import export_xlsx
+from app.models import ScrapeTask
 from app.local_llm import normalize_schema, parse_model_json
+from openpyxl import load_workbook
 
 
 class DetailPageTests(unittest.TestCase):
@@ -50,6 +53,21 @@ class DetailPageTests(unittest.TestCase):
         self.assertEqual(
             parse_model_json(response),
             {"base_selector": "article", "fields": []},
+        )
+
+    def test_excel_export_sets_requested_column_widths(self):
+        task = ScrapeTask(
+            url="https://example.test/",
+            requirement="test",
+            columns=["序号", "标题", "链接", "栏目名称", "类别"],
+            rows=[["1", "Title", "https://example.test/item", "News", "新闻"]],
+            schema={},
+        )
+        workbook = load_workbook(BytesIO(export_xlsx(task).getvalue()))
+        sheet = workbook["Lioran"]
+        self.assertEqual(
+            [sheet.column_dimensions[column].width for column in "ABCDE"],
+            [8, 60, 80, 15, 15],
         )
 
 
