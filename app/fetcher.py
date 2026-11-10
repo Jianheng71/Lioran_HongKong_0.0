@@ -4,6 +4,10 @@ import asyncio
 import ipaddress
 import re
 import socket
+import truststore
+
+truststore.inject_into_ssl()
+
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
