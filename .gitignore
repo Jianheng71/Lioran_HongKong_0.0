@@ -9,3 +9,6 @@ htmlcov/
 *.log
 .DS_Store
 playwright/.cache/
+build/
+dist/
+packaging/generated-icons/

@@ -5,6 +5,7 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 import logging
 from pathlib import Path
+import sys
 import threading
 
 from fastapi import FastAPI, HTTPException, Request
@@ -19,6 +20,10 @@ from app.models import FeedbackRequest, ScrapeRequest, ScrapeTask
 from app.runner import scrape
 
 ROOT = Path(__file__).resolve().parent.parent
+if getattr(sys, "frozen", False) and not (ROOT / "static").is_dir():
+    macos_resources = Path(sys.executable).resolve().parent.parent / "Resources"
+    if (macos_resources / "static").is_dir():
+        ROOT = macos_resources
 app = FastAPI(title="Lioran", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 logger = logging.getLogger(__name__)
