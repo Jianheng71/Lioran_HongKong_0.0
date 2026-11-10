@@ -10,13 +10,13 @@ Lioran 是一个本地运行的无代码网页数据提取工具：粘贴公开�
 
 ## 快速开始
 
-先安装并启动 [Ollama](https://ollama.com/download)。
+先安装 [Python 3.11+](https://www.python.org/downloads/) 和 [Ollama](https://ollama.com/download)，然后从 [GitHub Releases](https://github.com/Jianheng71/Lioran_HongKong_0.0/releases) 下载对应系统的安装包并解压。
 
-**macOS / Linux：** 在项目目录打开终端，运行 `./setup.sh`；完成后运行 `./start.sh`。安装脚本会创建虚拟环境、安装 Python 依赖和浏览器，并下载 Hermes 模型。
+**macOS：** 双击 `setup.command`；安装完成后双击 `start.command`。
 
-**Windows：** 先安装并启动 Ollama，然后双击 `setup.bat`；完成后双击 `start.bat`。
+**Windows：** 双击 `setup.bat`；安装完成后双击 `start.bat`。
 
-打开 <http://localhost:8000> 使用。
+安装过程会创建独立 Python 环境、安装应用依赖与浏览器，并下载 Hermes 模型（约 4.7 GB）。打开 <http://localhost:8000> 使用。首次运行安装器需联网；系统级 Python 和 Ollama 需预先安装。
 
 ## 手动本地运行
 

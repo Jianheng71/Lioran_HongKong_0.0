@@ -10,13 +10,13 @@ Lioran is a local, no-code web data extraction tool. Paste a public webpage URL,
 
 ## Quick start
 
-Install and start [Ollama](https://ollama.com/download) first.
+Install [Python 3.11+](https://www.python.org/downloads/) and [Ollama](https://ollama.com/download), then download and extract the package for your OS from [GitHub Releases](https://github.com/Jianheng71/Lioran_HongKong_0.0/releases).
 
-**macOS / Linux:** Open a terminal in the project folder and run `./setup.sh`, then `./start.sh`. The setup script creates a virtual environment, installs Python dependencies and browsers, and downloads the Hermes model.
+**macOS:** Double-click `setup.command`, then double-click `start.command` after setup finishes.
 
-**Windows:** Install and start Ollama, then double-click `setup.bat`. When it finishes, double-click `start.bat`.
+**Windows:** Double-click `setup.bat`, then double-click `start.bat` after setup finishes.
 
-Open <http://localhost:8000>.
+Setup creates an isolated Python environment, installs app dependencies and browsers, and downloads the Hermes model (about 4.7 GB). Open <http://localhost:8000>. Internet access is required for the initial setup; system Python and Ollama must be installed first.
 
 ## Manual local setup
 
