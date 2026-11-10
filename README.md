@@ -18,4 +18,6 @@ For public webpages only. Respect each site's terms of service and `robots.txt`.
 
 Enter a site's home page to discover same-site sections and pagination. Crawls run breadth-first, up to 500 pages and 3 link levels, with at most 5 concurrent page requests; the form lets you lower the page limit and stop a crawl. Repeated list entries are merged by link into one Excel file. Successful page responses are cached in memory for one hour.
 
+The local Hermes model interprets free-form extraction requests, selects the output columns, and maps them to each list item's title, link, date, summary, section, and category. Values that cannot be found are marked as inferred rather than left blank.
+
 Coverage depends on the site's public HTML, navigation, and `robots.txt`; this is a bounded crawler, not a guarantee that every page on every site can be discovered. The progress panel reports visited pages, discovered sections, and extracted records.

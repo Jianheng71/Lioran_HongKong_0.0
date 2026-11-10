@@ -192,6 +192,88 @@ class ListPageTests(unittest.TestCase):
             record["link"],
         ])
 
+    def test_comma_separated_custom_columns_are_not_dropped(self):
+        answer = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=(
+                            '{"fields":['
+                            '{"name":"时间","source":"published_at"},'
+                            '{"name":"标题","source":"title"}]}'
+                        )
+                    )
+                )
+            ]
+        )
+        record = {
+            "title": "A story",
+            "link": "https://example.test/news/story-1",
+            "published_at": "2026-11-10",
+            "summary": "",
+            "section": "News",
+            "category": "",
+            "source_url": "https://example.test/news/",
+        }
+        with patch("litellm.completion", return_value=answer):
+            columns, rows, _ = map_raw_fields(
+                "时间，标题，记者",
+                [record],
+            )
+
+        self.assertEqual(columns, ["时间", "标题", "记者"])
+        self.assertEqual(rows[0], [
+            "2026-11-10",
+            "A story",
+            "未提取到（推断）",
+        ])
+
+    def test_freeform_requirement_uses_model_detected_columns(self):
+        answer = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content='{"fields":[{"name":"记者","source":"summary"}]}'
+                    )
+                )
+            ]
+        )
+        record = {
+            "title": "A story",
+            "link": "https://example.test/news/story-1",
+            "published_at": "",
+            "summary": "记者：Alex Chen",
+            "section": "News",
+            "category": "",
+            "source_url": "https://example.test/news/",
+        }
+        with patch("litellm.completion", return_value=answer) as completion:
+            columns, rows, _ = map_raw_fields(
+                "找出每条报道由谁撰写，并整理成表格",
+                [record],
+            )
+
+        self.assertEqual(columns, ["记者"])
+        self.assertEqual(rows, [["记者：Alex Chen"]])
+        prompt = completion.call_args.kwargs["messages"][1]["content"]
+        self.assertIn('"requested_columns": []', prompt)
+
+    def test_freeform_columns_are_model_detected_even_without_records(self):
+        answer = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content='{"fields":[{"name":"记者","source":"inferred"}]}'
+                    )
+                )
+            ]
+        )
+        with patch("litellm.completion", return_value=answer):
+            columns, rows, _ = map_raw_fields("识别报道的撰稿人", [])
+
+        self.assertEqual(columns, ["记者"])
+        self.assertEqual(rows, [])
+
     def test_bounded_bfs_crawls_sections_and_pagination_and_deduplicates(self):
         root_url = "https://example.test/"
         news_url = "https://example.test/news/"
