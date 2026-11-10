@@ -119,7 +119,10 @@ async def create_scrape(payload: ScrapeRequest, request: Request) -> dict:
             timeout=settings.total_timeout,
         )
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="页面加载太慢，请稍后再试") from None
+        raise HTTPException(
+            status_code=504,
+            detail="抓取耗时较长，首次加载本地模型可能需要几分钟，请稍后重试",
+        ) from None
     except ScrapeError as error:
         raise HTTPException(status_code=422, detail=str(error)) from None
     except ValueError as error:
@@ -178,7 +181,10 @@ async def feedback(payload: FeedbackRequest, request: Request) -> dict:
             timeout=settings.total_timeout,
         )
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="页面加载太慢，请稍后再试") from None
+        raise HTTPException(
+            status_code=504,
+            detail="抓取耗时较长，首次加载本地模型可能需要几分钟，请稍后重试",
+        ) from None
     except ScrapeError as error:
         raise HTTPException(status_code=422, detail=str(error)) from None
     _store_task(updated)

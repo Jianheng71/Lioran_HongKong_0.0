@@ -33,7 +33,7 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-hermes3:8b}
       MAX_RETRIES: ${MAX_RETRIES:-3}
       REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-30}
-      TOTAL_TIMEOUT: ${TOTAL_TIMEOUT:-90}
+      TOTAL_TIMEOUT: ${TOTAL_TIMEOUT:-240}
     depends_on:
       model-init:
         condition: service_completed_successfully

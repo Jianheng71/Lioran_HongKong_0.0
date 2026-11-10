@@ -14,7 +14,7 @@ class Settings:
     ollama_model: str = os.getenv("OLLAMA_MODEL", "hermes3:8b")
     max_retries: int = min(3, max(1, int(os.getenv("MAX_RETRIES", "3"))))
     request_timeout: int = int(os.getenv("REQUEST_TIMEOUT", "30"))
-    total_timeout: int = int(os.getenv("TOTAL_TIMEOUT", "90"))
+    total_timeout: int = int(os.getenv("TOTAL_TIMEOUT", "240"))
     task_ttl_seconds: int = int(os.getenv("TASK_TTL_SECONDS", "3600"))
 
 
