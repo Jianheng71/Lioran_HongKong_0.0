@@ -1,0 +1,43 @@
+services:
+  ollama:
+    image: ollama/ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  model-init:
+    image: ollama/ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-hermes3:8b}
+    entrypoint: ["ollama"]
+    command: ["pull", "${OLLAMA_MODEL:-hermes3:8b}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  lioran:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-hermes3:8b}
+      MAX_RETRIES: ${MAX_RETRIES:-3}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-30}
+      TOTAL_TIMEOUT: ${TOTAL_TIMEOUT:-90}
+    depends_on:
+      model-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

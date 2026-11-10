@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f7fb">
+  <title>Lioran - 网页数据提取</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.tailwindcss.com" defer></script>
+</head>
+<body>
+  <main class="page-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Lioran home">
+        <span class="brand-mark" aria-hidden="true">L</span>
+        <span>Lioran</span>
+      </a>
+      <button id="language-toggle" class="language-toggle" type="button" aria-label="切换语言">中 / EN</button>
+    </header>
+
+    <section class="hero">
+      <p class="eyebrow" data-i18n="eyebrow">本地运行 · 无需编程</p>
+      <h1 data-i18n="title">粘贴链接，说出你想要的数据</h1>
+      <p class="subtitle" data-i18n="subtitle">Lioran 会理解公开网页，并把你需要的信息整理成表格。</p>
+    </section>
+
+    <section class="panel input-panel" aria-labelledby="form-title">
+      <h2 id="form-title" class="visually-hidden" data-i18n="formTitle">开始提取</h2>
+      <form id="scrape-form">
+        <label for="url-input" data-i18n="urlLabel">网页链接</label>
+        <input id="url-input" name="url" type="url" placeholder="https://example.com/news" autocomplete="url" required>
+
+        <label for="requirement-input" data-i18n="requirementLabel">你想提取什么？</label>
+        <textarea id="requirement-input" name="requirement" rows="3" maxlength="1000"
+          placeholder="例如：我要标题、发布时间和链接" required></textarea>
+
+        <button id="submit-button" class="primary-button" type="submit">
+          <span id="button-label" data-i18n="start">开始抓取</span>
+          <span id="spinner" class="spinner hidden" aria-hidden="true"></span>
+        </button>
+      </form>
+      <p id="status-message" class="status-message" role="status" aria-live="polite"></p>
+    </section>
+
+    <section id="error-panel" class="error-panel hidden" role="alert">
+      <span class="error-icon" aria-hidden="true">!</span>
+      <p id="error-message"></p>
+    </section>
+
+    <section id="results-panel" class="panel results-panel hidden" aria-labelledby="results-title">
+      <div class="results-heading">
+        <div>
+          <p class="eyebrow" data-i18n="resultsEyebrow">提取结果</p>
+          <h2 id="results-title"><span data-i18n="totalPrefix">共抓到</span> <span id="total-count">0</span> <span data-i18n="totalSuffix">条</span></h2>
+        </div>
+        <div class="result-actions">
+          <button id="download-button" class="secondary-button" type="button" data-i18n="download">下载 Excel</button>
+          <button id="retry-button" class="text-button" type="button" data-i18n="retry">重新抓取</button>
+        </div>
+      </div>
+      <p class="hint" data-i18n="rowHint">点选一行可以告诉 Lioran 哪条记录才是正确结果。</p>
+      <div class="table-wrap">
+        <table id="results-table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="footer" data-i18n="disclaimer">
+      仅用于公开数据，请遵守目标网站条款与当地法律法规。
+    </footer>
+  </main>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

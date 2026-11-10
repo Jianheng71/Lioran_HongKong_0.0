@@ -1,0 +1,14 @@
+#!/bin/bash
+set -e
+
+console_user=$(/usr/bin/stat -f '%Su' /dev/console)
+if [ -n "$console_user" ] && [ "$console_user" != "root" ]; then
+    user_home=$(/usr/bin/dscl . -read "/Users/$console_user" NFSHomeDirectory | /usr/bin/awk '{print $2}')
+    if [ -n "$user_home" ]; then
+        /bin/mkdir -p "$user_home/Desktop"
+        /bin/ln -sfn /Applications/Lioran.app "$user_home/Desktop/Lioran.app"
+        /usr/sbin/chown -h "$console_user" "$user_home/Desktop/Lioran.app"
+    fi
+fi
+
+exit 0

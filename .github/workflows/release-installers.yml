@@ -1,0 +1,128 @@
+name: Build and release desktop installers
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            packaging/requirements-build.txt
+      - name: Install build dependencies
+        run: |
+          python -m pip install -r requirements.txt -r packaging/requirements-build.txt
+      - name: Create app icon
+        run: python packaging/create_icons.py
+      - name: Build Windows app
+        run: python -m PyInstaller --clean --noconfirm --distpath dist packaging/lioran.spec
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: Create Windows installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/installer | Out-Null
+          $version = "0.1.$env:GITHUB_RUN_NUMBER"
+          $compiler = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          & $compiler "/DAppVersion=$version" packaging/windows.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/installer/LioranSetup.exe
+          if-no-files-found: error
+
+  macos:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+            installer: Lioran.dmg
+          - runner: macos-15-intel
+            architecture: x64
+            installer: Lioran-Intel.dmg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            packaging/requirements-build.txt
+      - name: Install build dependencies
+        run: python -m pip install -r requirements.txt -r packaging/requirements-build.txt
+      - name: Create app icon
+        run: python packaging/create_icons.py
+      - name: Build macOS app
+        run: python -m PyInstaller --clean --noconfirm --distpath dist packaging/lioran.spec
+      - name: Package macOS installer
+        run: |
+          set -euo pipefail
+          version="0.1.${GITHUB_RUN_NUMBER}"
+          mkdir -p dist/pkgroot dist/dmg
+          cp -R dist/Lioran.app dist/pkgroot/Lioran.app
+          pkgbuild \
+            --root dist/pkgroot \
+            --identifier com.jianheng71.lioran \
+            --version "$version" \
+            --install-location /Applications \
+            --scripts packaging/macos \
+            dist/dmg/Lioran.pkg
+          hdiutil create \
+            -volname "Lioran Installer" \
+            -srcfolder dist/dmg \
+            -ov \
+            -format UDZO \
+            "dist/${{ matrix.installer }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer-${{ matrix.architecture }}
+          path: dist/${{ matrix.installer }}
+          if-no-files-found: error
+
+  release:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          pattern: "*-installer"
+          merge-multiple: true
+      - name: Publish installers
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0-build.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Lioran Desktop Installers v0.1.0-build.${{ github.run_number }}
+          prerelease: true
+          generate_release_notes: false
+          body: |
+            1. Download LioranSetup.exe (Windows) or Lioran.dmg (macOS).
+            2. Run the installer and follow its prompts.
+            3. Double-click the Lioran desktop icon. The first launch downloads Hermes 3 8B and Chromium.
+
+            For Intel Macs, download Lioran-Intel.dmg instead.
+            Ollama must be installed. These unsigned preview builds may show Windows SmartScreen or macOS Gatekeeper warnings.
+          files: |
+            installers/LioranSetup.exe
+            installers/Lioran.dmg
+            installers/Lioran-Intel.dmg
