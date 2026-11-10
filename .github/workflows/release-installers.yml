@@ -53,9 +53,6 @@ jobs:
           - runner: macos-15
             architecture: arm64
             installer: Lioran.dmg
-          - runner: macos-15-intel
-            architecture: x64
-            installer: Lioran-Intel.dmg
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -111,7 +108,6 @@ jobs:
         run: |
           test -s installers/LioranSetup.exe
           test -s installers/Lioran.dmg
-          test -s installers/Lioran-Intel.dmg
       - name: Publish installers
         uses: softprops/action-gh-release@v2
         with:
@@ -124,10 +120,7 @@ jobs:
             1. Download LioranSetup.exe (Windows) or Lioran.dmg (macOS).
             2. Run the installer and follow its prompts.
             3. Double-click the Lioran desktop icon. The first launch downloads Hermes 3 8B and Chromium.
-
-            For Intel Macs, download Lioran-Intel.dmg instead.
             Ollama must be installed. These unsigned preview builds may show Windows SmartScreen or macOS Gatekeeper warnings.
           files: |
             installers/LioranSetup.exe
             installers/Lioran.dmg
-            installers/Lioran-Intel.dmg
