@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
@@ -31,6 +31,10 @@ class CrawlRequest(BaseModel):
     url: HttpUrl = Field(max_length=2048)
     requirement: str = Field(min_length=3, max_length=1000)
     max_pages: int = Field(default=500, ge=1, le=500)
+    enable_review: bool = False
+    review_time: bool = True
+    deep_review: bool = False
+    classification_labels: list[str] = Field(default_factory=list, max_length=8)
 
     @field_validator("requirement")
     @classmethod
@@ -40,12 +44,29 @@ class CrawlRequest(BaseModel):
             raise ValueError("请描述你想提取的数据")
         return value
 
+    @field_validator("classification_labels")
+    @classmethod
+    def normalize_classification_labels(cls, value: list[str]) -> list[str]:
+        labels = list(dict.fromkeys(label.strip() for label in value if label.strip()))
+        if any(len(label) > 80 for label in labels):
+            raise ValueError("每个分类标签不能超过 80 个字符")
+        return labels
+
+
+class ReviewCorrectionRequest(BaseModel):
+    decision: Literal["included", "excluded", "future", "manual_review"]
+    note: str = Field(default="", max_length=1000)
+
 
 @dataclass
 class CrawlJob:
     url: str
     requirement: str
     max_pages: int
+    enable_review: bool = False
+    review_time: bool = True
+    deep_review: bool = False
+    classification_labels: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     crawl_id: str = field(default_factory=lambda: str(uuid4()))
     status: str = "queued"
@@ -70,6 +91,11 @@ class ScrapeTask:
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     task_id: str = field(default_factory=lambda: str(uuid4()))
     feedback_row_index: int | None = None
+    review_enabled: bool = False
+    review_time: bool = False
+    deep_review: bool = False
+    review_records: list[dict[str, Any]] = field(default_factory=list)
+    review_summary: dict[str, int] = field(default_factory=dict)
 
     @property
     def total(self) -> int:

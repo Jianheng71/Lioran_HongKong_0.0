@@ -4,9 +4,10 @@ import unittest
 from unittest.mock import patch
 
 from app.cleaner import build_html_skeleton, clean_html
+from app.compliance import ReviewIntent
 from app.local_llm import map_raw_fields
 from app.models import CrawlJob
-from app.site_crawler import _should_queue, analyze_page, crawl_site
+from app.site_crawler import PageAnalysis, RawRecord, _should_queue, analyze_page, crawl_site
 
 
 LIST_PAGE = """
@@ -154,6 +155,39 @@ class ListPageTests(unittest.TestCase):
             "意见（推断）",
         ])
         self.assertEqual(len(mapping), 5)
+
+    def test_invalid_mapping_response_falls_back_to_raw_columns(self):
+        answer = SimpleNamespace(
+            choices=[
+                SimpleNamespace(message=SimpleNamespace(content="")),
+            ]
+        )
+        record = {
+            "title": "关于环境保护的通知",
+            "link": "https://example.test/policy/1",
+            "published_at": "2026-11-10",
+            "summary": "环境保护相关政策",
+            "section": "政策文件",
+            "category": "通知",
+            "source_url": "https://example.test/policy/",
+        }
+        with patch("litellm.completion", return_value=answer):
+            columns, rows, mapping = map_raw_fields(
+                "我要关于环境污染的，现在处于有效期内的",
+                [record],
+            )
+
+        self.assertEqual(columns, ["序号", "标题", "链接", "时间", "摘要", "栏目名称", "类别"])
+        self.assertEqual(rows[0], [
+            "1",
+            record["title"],
+            record["link"],
+            record["published_at"],
+            record["summary"],
+            record["section"],
+            record["category"],
+        ])
+        self.assertEqual(len(mapping), 7)
 
     def test_local_ai_mapping_keeps_custom_requested_columns(self):
         answer = SimpleNamespace(
@@ -335,9 +369,15 @@ class ListPageTests(unittest.TestCase):
         with (
             patch("app.site_crawler._cached_fetch", side_effect=fake_fetch),
             patch("app.site_crawler.map_raw_fields", side_effect=fake_map),
+            patch("app.site_crawler.review_records") as review,
+            patch("app.local_llm.instructor_completion") as instructor_call,
+            patch("app.local_llm.parse_local_date") as parse_date,
         ):
             task = asyncio.run(crawl_site(job))
 
+        review.assert_not_called()
+        instructor_call.assert_not_called()
+        parse_date.assert_not_called()
         self.assertEqual(job.pages_crawled, 4)
         self.assertEqual(job.rows_count, 6)
         self.assertEqual(task.total, 6)
@@ -345,6 +385,100 @@ class ListPageTests(unittest.TestCase):
         self.assertEqual(task.rows[0][1], "Story One")
         self.assertEqual(task.rows[-1][1], "Story Six")
         self.assertEqual(task.schema["sections_crawled"], 2)
+
+    def test_deep_review_counts_detail_pages_against_the_same_limit(self):
+        root_url = "https://example.test/"
+        section_url = "https://example.test/policies/"
+        first_detail = "https://example.test/policies/1"
+        second_detail = "https://example.test/policies/2"
+        records = [
+            RawRecord("Policy One", first_detail, "", "", "Policies", "", section_url),
+            RawRecord("Policy Two", second_detail, "", "", "Policies", "", section_url),
+        ]
+        detail_fetches = []
+        review_inputs = []
+        review_labels = []
+
+        def fake_fetch(url, _allowed_hosts):
+            if url == first_detail:
+                detail_fetches.append(url)
+                return "<main>First policy evidence.</main>", url
+            return "<main>Other page.</main>", url
+
+        def fake_analysis(url, _html, _hint):
+            if url == root_url:
+                return PageAnalysis(
+                    title="Home",
+                    section="首页",
+                    page_type="list",
+                    links=[(section_url, "Policies")],
+                )
+            return PageAnalysis(
+                title="Policies",
+                section="Policies",
+                page_type="list",
+                records=records,
+            )
+
+        def fake_review(
+            _requirement,
+            source_records,
+            _review_time,
+            progress_callback=None,
+            should_stop=None,
+            classification_labels=None,
+            classification_progress_callback=None,
+        ):
+            review_inputs.extend(source_records)
+            review_labels.extend(classification_labels or [])
+            if progress_callback:
+                progress_callback(len(source_records), len(source_records))
+            if classification_progress_callback:
+                classification_progress_callback(len(source_records), len(source_records))
+            return (
+                [
+                    {"decision": "included", "review_required": False},
+                    {"decision": "included", "review_required": False},
+                ],
+                ReviewIntent(
+                    topic_filter_requested=False,
+                    topics=[],
+                    match_logic="any",
+                    rationale="No topic filter",
+                ),
+            )
+
+        job = CrawlJob(
+            url=root_url,
+            requirement="policy titles",
+            max_pages=3,
+            enable_review=True,
+            deep_review=True,
+            classification_labels=["住房"],
+        )
+        with (
+            patch("app.site_crawler._cached_fetch", side_effect=fake_fetch),
+            patch("app.site_crawler.analyze_page", side_effect=fake_analysis),
+            patch(
+                "app.site_crawler.map_raw_fields",
+                return_value=(
+                    ["标题"],
+                    [["Policy One"], ["Policy Two"]],
+                    [{"name": "标题", "source": "title"}],
+                ),
+            ),
+            patch("app.site_crawler.review_records", side_effect=fake_review),
+        ):
+            task = asyncio.run(crawl_site(job))
+
+        self.assertEqual(detail_fetches, [first_detail])
+        self.assertEqual(job.pages_crawled, 3)
+        self.assertEqual(job.pages_crawled, job.max_pages)
+        self.assertEqual(job.detail_pages, 1)
+        self.assertIn("First policy evidence.", review_inputs[0]["content"])
+        self.assertEqual(review_inputs[1]["content"], "")
+        self.assertEqual(review_labels, ["住房"])
+        self.assertTrue(task.review_enabled)
 
 
 if __name__ == "__main__":

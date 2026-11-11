@@ -16,8 +16,16 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.exporter import export_xlsx
 from app.fetcher import ScrapeError, ensure_public_url
-from app.models import CrawlJob, CrawlRequest, FeedbackRequest, ScrapeRequest, ScrapeTask
+from app.models import (
+    CrawlJob,
+    CrawlRequest,
+    FeedbackRequest,
+    ReviewCorrectionRequest,
+    ScrapeRequest,
+    ScrapeTask,
+)
 from app.runner import scrape
+from app.review_store import list_review_items, list_review_tasks, load_task, save_task, update_review_item
 from app.site_crawler import crawl_site
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,6 +65,7 @@ def _store_task(task: ScrapeTask) -> None:
     ]
     for key in expired_jobs:
         _crawl_jobs.pop(key, None)
+    save_task(task)
 
 
 def _get_task(task_id: str) -> ScrapeTask:
@@ -68,8 +77,44 @@ def _get_task(task_id: str) -> ScrapeTask:
                 del _tasks[task_id]
                 task = None
     if task is None:
-        raise HTTPException(status_code=404, detail="结果不存在或已过期，请重新抓取")
+        task = load_task(task_id)
+        if task is not None:
+            _refresh_review_rows(task)
+            with _task_lock:
+                _tasks[task_id] = task
+    if task is None:
+        raise HTTPException(status_code=404, detail="结果不存在，请重新抓取")
     return task
+
+
+def _refresh_review_rows(task: ScrapeTask) -> None:
+    if not task.review_enabled:
+        return
+    task.review_records = list_review_items(task.task_id)
+    included = [item for item in task.review_records if item.get("decision") == "included"]
+    task.rows = []
+    for index, item in enumerate(included, start=1):
+        values = item.get("extracted_values", {})
+        row = []
+        for column in task.columns:
+            is_sequence = any(
+                name in column.lower() for name in ("序号", "编号", "sequence", "number")
+            )
+            row.append(str(index) if is_sequence else str(values.get(column, "")))
+        task.rows.append(row)
+    task.review_summary = {
+        "total": len(task.review_records),
+        "included": sum(item.get("decision") == "included" for item in task.review_records),
+        "excluded": sum(item.get("decision") == "excluded" for item in task.review_records),
+        "future": sum(item.get("decision") == "future" for item in task.review_records),
+        "manual_review": sum(
+            item.get("decision") == "manual_review" for item in task.review_records
+        ),
+        "needs_review": sum(
+            item.get("review_required", False) for item in task.review_records
+        ),
+    }
+    task.schema["review_summary"] = task.review_summary
 
 
 def _crawl_status(job: CrawlJob) -> dict:
@@ -109,7 +154,11 @@ async def _run_crawl_job(job: CrawlJob) -> None:
             "Site crawl failed",
             exc_info=(type(error), error, error.__traceback__),
         )
-        job.error = "整站抓取失败，请稍后重试"
+        job.error = (
+            f"合规审查失败：{error}"
+            if job.enable_review
+            else "整站抓取失败，请稍后重试"
+        )
         job.status = "error"
     finally:
         job.current_section = ""
@@ -206,6 +255,10 @@ async def create_crawl(payload: CrawlRequest, request: Request) -> dict:
         url=url,
         requirement=payload.requirement,
         max_pages=payload.max_pages,
+        enable_review=payload.enable_review,
+        review_time=payload.enable_review,
+        deep_review=payload.deep_review,
+        classification_labels=payload.classification_labels,
     )
     _crawl_jobs[job.crawl_id] = job
     _crawl_job_tasks[job.crawl_id] = asyncio.create_task(_run_crawl_job(job))
@@ -242,6 +295,8 @@ async def preview(task_id: str) -> dict:
             "rows": task.rows[:5],
             "total": task.total,
             "schema": task.schema,
+            "review_enabled": task.review_enabled,
+            "review_summary": task.review_summary,
         }
     )
 
@@ -257,6 +312,56 @@ async def download(task_id: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/api/review/tasks")
+async def review_tasks() -> dict:
+    return _envelope({"tasks": list_review_tasks()})
+
+
+@app.get("/api/review/items")
+async def review_items(
+    task_id: str,
+    decision: str | None = None,
+    offset: int = 0,
+    limit: int = 100,
+) -> dict:
+    if offset < 0 or limit < 1 or limit > 500:
+        raise HTTPException(status_code=422, detail="分页参数无效")
+    task = _get_task(task_id)
+    if not task.review_enabled:
+        raise HTTPException(status_code=422, detail="该任务没有合规审查结果")
+    items = list_review_items(task_id)
+    if decision == "needs_review":
+        items = [item for item in items if item.get("review_required")]
+    elif decision and decision != "all":
+        if decision not in {"included", "excluded", "future", "manual_review"}:
+            raise HTTPException(status_code=422, detail="审核分类无效")
+        items = [item for item in items if item.get("decision") == decision]
+    return _envelope({
+        "items": items[offset:offset + limit],
+        "total": len(items),
+        "offset": offset,
+        "limit": limit,
+    })
+
+
+@app.patch("/api/review/items/{review_id}")
+async def correct_review_item(
+    review_id: str,
+    payload: ReviewCorrectionRequest,
+) -> dict:
+    updated = update_review_item(review_id, payload.decision, payload.note)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="审核记录不存在")
+    with _task_lock:
+        task = _tasks.get(updated["task_id"])
+    if task is None:
+        task = load_task(updated["task_id"])
+    if task is not None:
+        _refresh_review_rows(task)
+        _store_task(task)
+    return _envelope({"item": updated})
 
 
 @app.post("/api/feedback")

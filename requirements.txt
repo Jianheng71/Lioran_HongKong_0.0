@@ -3,8 +3,15 @@ uvicorn==0.29.0
 scrapling[fetchers]==0.5.0
 crawl4ai==0.9.5
 playwright==1.62.0
-pandas==2.2.0
+pandas>=2.3.2,<4
 openpyxl==3.1.0
 pydantic==2.12.5
 python-dotenv==1.0.1
 truststore==0.10.5
+instructor==1.17.0
+dateparser==1.5.0
+flashtext==2.7
+numpy>=2.2,<3
+transformers>=4.50,<6
+onnxruntime>=1.22
+huggingface_hub>=0.30

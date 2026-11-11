@@ -1,12 +1,22 @@
 """Helpers for validating JSON emitted by Ollama-hosted Hermes."""
 
 import json
+import logging
 import re
+import threading
+from datetime import date, datetime
 from typing import Any
+
+import dateparser
+from dateparser.search import search_dates
+import instructor
 
 from app.config import settings
 
 
+logger = logging.getLogger(__name__)
+_instructor_call_count = 0
+_instructor_call_lock = threading.Lock()
 TOOL_CALL_PATTERN = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)
 RAW_FIELD_KEYS = {
     "sequence",
@@ -27,6 +37,50 @@ DEFAULT_RAW_FIELDS = [
     ("栏目名称", "section"),
     ("类别", "category"),
 ]
+
+
+def instructor_completion(response_model, messages, max_tokens: int):
+    """Call the local model with Instructor-enforced Pydantic output."""
+    global _instructor_call_count
+    import litellm
+
+    client = instructor.from_litellm(litellm.completion, mode=instructor.Mode.JSON)
+    with _instructor_call_lock:
+        _instructor_call_count += 1
+        call_count = _instructor_call_count
+    logger.info("Instructor structured call count: %d", call_count)
+    return client.chat.completions.create(
+        model=f"ollama/{settings.ollama_model}",
+        api_base=settings.ollama_base_url,
+        api_key="no_token",
+        messages=messages,
+        response_model=response_model,
+        temperature=0,
+        max_tokens=max_tokens,
+        timeout=settings.total_timeout,
+        max_retries=2,
+    )
+
+
+def parse_local_date(value: str, relative_base: date | datetime) -> date | None:
+    """Parse multilingual date text locally and log the normalized result."""
+    base = (
+        relative_base
+        if isinstance(relative_base, datetime)
+        else datetime.combine(relative_base, datetime.min.time())
+    )
+    date_settings = {
+        "RELATIVE_BASE": base,
+        "PREFER_DATES_FROM": "past",
+        "RETURN_AS_TIMEZONE_AWARE": False,
+    }
+    matches = search_dates(value, settings=date_settings)
+    parsed = matches[0][1].date() if matches else None
+    if parsed is None:
+        result = dateparser.parse(value, settings=date_settings)
+        parsed = result.date() if result else None
+    logger.info("Dateparser parsed %r as %s", value, parsed.isoformat() if parsed else None)
+    return parsed
 
 
 def parse_model_json(content: str | dict[str, Any]) -> dict[str, Any]:
@@ -145,7 +199,21 @@ def _explicit_raw_fields(requirement: str) -> list[tuple[str, str]]:
             and len(token) <= 40
             and not any(
                 term in token
-                for term in ("找出", "每条", "由谁", "撰写", "整理", "表格")
+                for term in (
+                    "找出",
+                    "每条",
+                    "由谁",
+                    "撰写",
+                    "整理",
+                    "表格",
+                    "关于",
+                    "处于",
+                    "现在",
+                    "只要",
+                    "只保留",
+                    "符合",
+                    "的",
+                )
             )
             and not any(alias.lower() in token.lower() for alias, _, _ in aliases)
         ):
@@ -231,7 +299,14 @@ def map_raw_fields(
         timeout=settings.total_timeout,
     )
     content = response.choices[0].message.content
-    parsed = parse_model_json(content or "")
+    try:
+        parsed = parse_model_json(content or "")
+    except (TypeError, ValueError) as error:
+        logger.warning(
+            "Field mapping response was invalid; using deterministic raw columns: %s",
+            error,
+        )
+        parsed = {"fields": []}
     raw_mappings = parsed.get("fields")
     mappings_by_name: dict[str, str] = {}
     model_order: list[str] = []

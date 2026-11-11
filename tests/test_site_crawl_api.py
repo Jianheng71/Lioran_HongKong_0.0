@@ -18,6 +18,20 @@ class SiteCrawlApiTests(unittest.TestCase):
                 max_pages=501,
             )
 
+    def test_classification_labels_are_normalized_and_bounded(self):
+        request = CrawlRequest(
+            url="https://example.test/",
+            requirement="title and link",
+            classification_labels=["  housing ", "housing", "education"],
+        )
+        self.assertEqual(request.classification_labels, ["housing", "education"])
+        with self.assertRaises(ValidationError):
+            CrawlRequest(
+                url="https://example.test/",
+                requirement="title and link",
+                classification_labels=[f"topic-{index}" for index in range(9)],
+            )
+
     def test_background_crawl_can_be_stopped_and_returns_partial_result(self):
         async def run_test():
             async def waiting_crawl(job):
@@ -39,6 +53,7 @@ class SiteCrawlApiTests(unittest.TestCase):
             with (
                 patch("app.main.ensure_public_url", side_effect=lambda url: str(url)),
                 patch("app.main.crawl_site", side_effect=waiting_crawl),
+                patch("app.main.save_task"),
             ):
                 async with httpx.AsyncClient(
                     transport=transport,

@@ -42,6 +42,20 @@
           <p class="option-hint" data-i18n="crawlLimitHint">同域名 · 最多 3 层 · 5 个并发</p>
         </div>
 
+        <fieldset class="review-options">
+          <legend data-i18n="reviewSettings">本地合规审查</legend>
+          <label class="check-option">
+            <input id="enable-review-input" name="enable_review" type="checkbox">
+            <span data-i18n="enableReview">启用合规审查（本地模型，不上传页面内容）</span>
+          </label>
+          <div id="review-suboptions" class="review-suboptions">
+            <label class="check-option">
+              <input id="deep-review-input" name="deep_review" type="checkbox">
+              <span data-i18n="deepReview">打开详情页取证（详情页计入最大页数）</span>
+            </label>
+          </div>
+        </fieldset>
+
         <div class="form-actions">
           <button id="submit-button" class="primary-button" type="submit">
           <span id="button-label" data-i18n="start">开始抓取</span>
@@ -50,6 +64,20 @@
           <button id="stop-button" class="stop-button hidden" type="button" data-i18n="stop">停止</button>
         </div>
       </form>
+      <dialog id="classification-dialog" class="classification-dialog" aria-labelledby="classification-title">
+        <h2 id="classification-title" data-i18n="classificationTitle">确认主题标签</h2>
+        <p data-i18n="classificationDescription">
+          输入要保留的主题，用逗号分隔。系统会自动加入“不是政策”；主题分类信心低于 85% 的记录会转人工复核。
+        </p>
+        <label for="classification-label-input" data-i18n="classificationLabelsLabel">主题标签</label>
+        <textarea id="classification-label-input" rows="3" maxlength="700"
+          placeholder="例如：住房、教育、环境保护"></textarea>
+        <p id="classification-error" class="classification-error hidden" role="alert"></p>
+        <div class="classification-actions">
+          <button id="classification-cancel" class="text-button" type="button" data-i18n="cancel">取消</button>
+          <button id="classification-confirm" class="primary-button" type="button" data-i18n="classificationConfirm">确认标签并开始</button>
+        </div>
+      </dialog>
       <p id="status-message" class="status-message" role="status" aria-live="polite"></p>
       <section id="progress-panel" class="progress-panel hidden" aria-live="polite">
         <div class="progress-heading">
@@ -85,12 +113,34 @@
         </div>
       </div>
       <p class="hint" data-i18n="rowHint">点选一行可以告诉 Lioran 哪条记录才是正确结果。</p>
-      <div class="table-wrap">
+      <section id="review-results" class="review-results hidden">
+        <div id="review-summary" class="review-summary"></div>
+        <div id="review-tabs" class="review-tabs" role="tablist" aria-label="审核分类">
+          <button type="button" class="review-tab" data-decision="all" data-i18n="reviewAll">全部</button>
+          <button type="button" class="review-tab" data-decision="included" data-i18n="reviewIncluded">有效保留</button>
+          <button type="button" class="review-tab" data-decision="excluded" data-i18n="reviewExcluded">排除</button>
+          <button type="button" class="review-tab" data-decision="future" data-i18n="reviewFuture">待生效</button>
+          <button type="button" class="review-tab" data-decision="needs_review" data-i18n="reviewManual">待人工复核</button>
+        </div>
+        <div class="table-wrap">
+          <table id="review-table">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button id="review-load-more" class="text-button hidden" type="button">加载更多</button>
+      </section>
+      <div id="extraction-table-wrap" class="table-wrap">
         <table id="results-table">
           <thead></thead>
           <tbody></tbody>
         </table>
       </div>
+    </section>
+
+    <section id="saved-reviews" class="panel saved-reviews hidden" aria-labelledby="saved-reviews-title">
+      <h2 id="saved-reviews-title" data-i18n="savedReviews">本机已保存的审查</h2>
+      <div id="saved-review-list" class="saved-review-list"></div>
     </section>
 
     <footer class="footer" data-i18n="disclaimer">

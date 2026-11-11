@@ -8,12 +8,15 @@ import logging
 import re
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urldefrag, urljoin, urlsplit, urlunsplit
+from uuid import uuid4
 
 from lxml import html as lxml_html
 
 from app.config import settings
+from app.compliance import review_records
 from app.fetcher import ScrapeError, check_robots, fetch_page
 from app.local_llm import map_raw_fields
 from app.models import CrawlJob, ScrapeTask
@@ -52,6 +55,8 @@ class RawRecord:
     section: str
     category: str
     source_url: str
+    content: str = ""
+    captured_at: str = ""
 
     def as_dict(self) -> dict[str, str]:
         return {
@@ -62,6 +67,8 @@ class RawRecord:
             "section": self.section,
             "category": self.category,
             "source_url": self.source_url,
+            "content": self.content,
+            "captured_at": self.captured_at,
         }
 
 
@@ -236,6 +243,7 @@ def _extract_record(node: Any, source_url: str, section: str) -> RawRecord | Non
         section=section,
         category=category,
         source_url=source_url,
+        captured_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
 
 
@@ -339,6 +347,24 @@ def analyze_page(source_url: str, source_html: str, section_hint: str = "") -> P
         records=records,
         links=links,
     )
+
+
+def extract_detail_text(source_html: str, max_characters: int = 20000) -> str:
+    """Extract readable article text while excluding common page chrome."""
+    try:
+        document = lxml_html.fromstring(source_html)
+    except (TypeError, ValueError):
+        return ""
+    for node in document.xpath(
+        "//script|//style|//noscript|//iframe|//svg|//template|//nav|//header|//footer|//aside|//form"
+    ):
+        parent = node.getparent()
+        if parent is not None:
+            parent.remove(node)
+    candidates = document.xpath("//article|//main|//*[@role='main']")
+    candidate = max(candidates, key=lambda node: len(_visible_text(node)), default=None)
+    content = _visible_text(candidate if candidate is not None else document)
+    return content[:max_characters]
 
 
 def _is_pagination(label: str, url: str) -> bool:
@@ -514,20 +540,116 @@ async def crawl_site(job: CrawlJob) -> ScrapeTask:
 
     if job.stop_requested:
         job.status = "stopped"
+
+    records = list(records_by_link.values())
+    if job.enable_review and job.deep_review and records and not job.stop_requested:
+        visited_urls = {_canonical_url(url) for url in visited}
+        remaining_pages = max(0, job.max_pages - len(visited_urls))
+        eligible: list[RawRecord] = []
+        reserved_urls: set[str] = set()
+        for record in records:
+            canonical = _canonical_url(record.link)
+            if canonical in visited_urls:
+                eligible.append(record)
+            elif canonical not in reserved_urls and remaining_pages > 0:
+                eligible.append(record)
+                reserved_urls.add(canonical)
+                remaining_pages -= 1
+
+        job.status = "running"
+        for start in range(0, len(eligible), MAX_CONCURRENT_FETCHES):
+            batch = eligible[start:start + MAX_CONCURRENT_FETCHES]
+            if job.stop_requested:
+                break
+            job.current_section = f"正在读取详情页 {start + 1}-{start + len(batch)}"
+
+            async def fetch_detail(record: RawRecord) -> tuple[RawRecord, str, str | None]:
+                try:
+                    source_html, final_url = await asyncio.to_thread(
+                        _cached_fetch,
+                        record.link,
+                        allowed_hosts,
+                    )
+                    return record, extract_detail_text(source_html), final_url
+                except ScrapeError as error:
+                    return record, "", str(error)
+                except Exception as error:
+                    logger.warning("Skipping detail page %s: %s", record.link, error)
+                    return record, "", "读取详情页失败"
+
+            detail_results = await asyncio.gather(
+                *(fetch_detail(record) for record in batch),
+            )
+            for record, content, final_url in detail_results:
+                requested_url = _canonical_url(record.link)
+                was_visited = requested_url in visited_urls
+                if not was_visited:
+                    visited_urls.add(requested_url)
+                    job.pages_crawled = len(visited_urls)
+                if final_url:
+                    record.content = content
+                    if not was_visited:
+                        job.detail_pages += 1
+                else:
+                    errors += 1
+            job.rows_count = len(records_by_link)
+
     job.current_section = "正在整理字段和合并结果"
     job.status = "mapping"
-    records = list(records_by_link.values())
     columns, rows, mapping = await asyncio.to_thread(
         map_raw_fields,
         job.requirement,
         [record.as_dict() for record in records],
     )
-    job.rows_count = len(rows)
+    job.rows_count = len(records)
+    review_results: list[dict[str, Any]] = []
+    review_summary: dict[str, int] = {}
+    visible_rows = rows
+    intent = None
+    if job.enable_review:
+        job.current_section = "本地主题分类 0 条"
+        source_records = [
+            {
+                **record.as_dict(),
+                "review_id": str(uuid4()),
+                "extracted_values": dict(zip(columns, row)),
+            }
+            for record, row in zip(records, rows)
+        ]
+
+        def update_review_progress(completed: int, total: int) -> None:
+            job.current_section = f"本地合规审查 {completed}/{total} 条"
+
+        def update_classification_progress(completed: int, total: int) -> None:
+            job.current_section = f"本地主题分类 {completed}/{total} 条"
+
+        review_results, intent = await asyncio.to_thread(
+            review_records,
+            job.requirement,
+            source_records,
+            job.review_time,
+            progress_callback=update_review_progress,
+            should_stop=lambda: job.stop_requested,
+            classification_labels=job.classification_labels,
+            classification_progress_callback=update_classification_progress,
+        )
+        review_summary = {
+            "total": len(review_results),
+            "included": sum(item["decision"] == "included" for item in review_results),
+            "excluded": sum(item["decision"] == "excluded" for item in review_results),
+            "future": sum(item["decision"] == "future" for item in review_results),
+            "manual_review": sum(item["decision"] == "manual_review" for item in review_results),
+            "needs_review": sum(item.get("review_required", False) for item in review_results),
+        }
+        visible_rows = [
+            row for row, item in zip(rows, review_results)
+            if item["decision"] == "included"
+        ]
     task = ScrapeTask(
         url=job.url,
         requirement=job.requirement,
         columns=columns,
-        rows=rows,
+        rows=visible_rows,
         schema={
             "template": "site_crawl",
             "max_depth": MAX_CRAWL_DEPTH,
@@ -538,7 +660,18 @@ async def crawl_site(job: CrawlJob) -> ScrapeTask:
             "sections_crawled": len(job.sections),
             "errors": errors,
             "field_mapping": mapping,
+            "compliance_review": job.enable_review,
+            "classification_labels": job.classification_labels,
+            "classification_threshold": 0.85,
+            "topic_filter_requested": intent.topic_filter_requested if intent else False,
+            "topics": intent.topics if intent else [],
+            "review_summary": review_summary,
         },
+        review_enabled=job.enable_review,
+        review_time=job.enable_review,
+        deep_review=job.deep_review if job.enable_review else False,
+        review_records=review_results,
+        review_summary=review_summary,
     )
     job.current_section = ""
     job.status = "stopped" if job.stop_requested else "completed"

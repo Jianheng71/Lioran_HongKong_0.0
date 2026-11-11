@@ -140,6 +140,18 @@ input:focus, textarea:focus {
 .page-limit label { display: block; margin-bottom: 8px; }
 .page-limit input { margin: 0; padding: 10px 12px; }
 .option-hint { margin: 0 0 10px; color: #718096; font-size: 12px; }
+.review-options {
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  border: 1px solid #e1e6ed;
+  border-radius: 10px;
+  background: #fafbfd;
+}
+.review-options legend { padding: 0 6px; color: #526179; font-size: 12px; font-weight: 700; }
+.check-option { display: flex; align-items: flex-start; gap: 9px; margin: 5px 0; color: #394a61; font-size: 13px; font-weight: 500; }
+.check-option input { width: 16px; height: 16px; flex: 0 0 auto; margin: 1px 0 0; accent-color: var(--blue); }
+.review-suboptions { display: grid; gap: 6px; padding: 9px 0 0 25px; }
+.review-suboptions.disabled { opacity: .48; }
 .form-actions { display: flex; gap: 10px; }
 .primary-button, .stop-button {
   min-height: 48px;
@@ -201,6 +213,27 @@ input:focus, textarea:focus {
   border-color: #cbd6ff;
   box-shadow: 0 2px 4px #2449d80b;
 }
+.review-results { margin-top: 20px; }
+.review-summary { display: flex; flex-wrap: wrap; gap: 9px; margin: 0 0 16px; }
+.review-summary-item { display: inline-flex; gap: 7px; align-items: baseline; padding: 8px 11px; border: 1px solid #e1e6ed; border-radius: 9px; background: #f8fafc; color: #607087; font-size: 12px; }
+.review-summary-item strong { color: #1d2c43; font-size: 17px; font-variant-numeric: tabular-nums; }
+.review-tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 12px; border-bottom: 1px solid #e1e6ed; }
+.review-tab { flex: 0 0 auto; padding: 10px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #68778c; font-size: 13px; font-weight: 650; }
+.review-tab:hover, .review-tab.active { border-bottom-color: var(--blue); color: var(--blue); }
+#review-table { min-width: 1280px; }
+#review-table td { min-width: 130px; }
+#review-table td:nth-child(1) { min-width: 220px; }
+#review-table td:nth-child(11), #review-table td:nth-child(12), #review-table td:nth-child(13) { min-width: 260px; }
+#review-table a { color: var(--blue); overflow-wrap: anywhere; }
+.review-correction { display: grid; gap: 6px; min-width: 130px; }
+.review-correction select { max-width: 150px; padding: 6px; border: 1px solid #d9e0e9; border-radius: 7px; background: white; color: var(--ink); font-size: 12px; }
+.review-save-button { justify-self: start; padding: 6px 9px; border: 1px solid #cbd6ff; border-radius: 7px; background: #f5f7ff; color: var(--blue); font-size: 12px; font-weight: 700; }
+.review-save-button:disabled { opacity: .6; }
+.saved-reviews { margin: 20px 0 0; padding: 20px 24px; }
+.saved-reviews h2 { margin: 0 0 12px; font-size: 16px; }
+.saved-review-list { display: grid; gap: 7px; }
+.saved-review-button { overflow: hidden; padding: 9px 11px; border: 1px solid #e1e6ed; border-radius: 8px; background: #fafbfd; color: #3b4b62; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.saved-review-button:hover { border-color: #bac8ff; background: #f5f7ff; }
 .table-wrap { border-color: #e1e6ed; }
 table { font-size: 13px; }
 th {
@@ -222,6 +255,8 @@ tbody tr { transition: background .12s; }
   .crawl-options { align-items: flex-start; flex-direction: column; gap: 8px; }
   .page-limit { width: 100%; }
   .option-hint { margin-bottom: 0; }
+  .review-options { padding: 12px; }
+  .saved-reviews { padding: 17px; }
   .progress-stats { flex-wrap: wrap; gap: 8px 18px; }
   .form-actions { flex-direction: column; }
 }
@@ -234,3 +269,19 @@ tbody tr { transition: background .12s; }
     transition-duration: .01ms !important;
   }
 }
+
+.classification-dialog {
+  width: min(100% - 32px, 480px);
+  border: 1px solid #e1e6ed;
+  border-radius: 14px;
+  padding: 24px;
+  color: var(--ink);
+  box-shadow: 0 24px 70px #16284833;
+}
+.classification-dialog::backdrop { background: #12223a66; }
+.classification-dialog h2 { margin: 0 0 10px; font-size: 19px; }
+.classification-dialog p { color: #64748b; font-size: 13px; line-height: 1.6; }
+.classification-dialog textarea { margin: 8px 0 0; }
+.classification-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.classification-actions .primary-button { flex: 0 1 auto; min-height: 40px; }
+.classification-error { margin: 0 0 12px; color: #b42318 !important; }

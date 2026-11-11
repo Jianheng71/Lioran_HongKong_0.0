@@ -21,3 +21,13 @@ Enter a site's home page to discover same-site sections and pagination. Crawls r
 The local Hermes model interprets free-form extraction requests, selects the output columns, and maps them to each list item's title, link, date, summary, section, and category. Values that cannot be found are marked as inferred rather than left blank.
 
 Coverage depends on the site's public HTML, navigation, and `robots.txt`; this is a bounded crawler, not a guarantee that every page on every site can be discovered. The progress panel reports visited pages, discovered sections, and extracted records.
+
+## Local compliance review
+
+The crawl form can optionally run a local policy review on the collected records. After you confirm up to eight topic labels, a multilingual mDeBERTa NLI model runs locally through ONNX Runtime. Labels scoring below 85% go to manual review; high-confidence topic matches continue through Instructor-validated extraction, Dateparser date parsing, and Python's deterministic lifecycle rules. High-confidence “not a policy” results are excluded directly. The quantized model (about 339 MB) is downloaded from Hugging Face on first use and then cached on this computer; page content is not sent to a hosted model. Evidence must be present in the fetched page material, otherwise the item is routed to manual review. Enable **Open detail pages for evidence** when list-page snippets do not contain enough text; those detail pages count toward the same page limit.
+
+Results are classified as included, excluded, not yet effective, or requiring manual review. Explicit repeal/expiry language, parsed effective and expiry dates, status/date conflicts, and missing evidence are handled separately. Items marked effective without an expiry date remain included with medium risk and a manual-confirmation flag. Reviewers can change a decision in the UI; changes are saved locally.
+
+Reviewed workbooks contain a summary sheet and separate sheets for included, excluded, not-yet-effective, and manual-review items. Crawl tasks and review results are stored in a local SQLite database under the operating system's Lioran application-data directory (or `LIORAN_DATA_DIR` when configured); page content is not sent to a cloud model.
+
+This first review phase supports public webpages only. Conflict/republication/replacement detection, scheduled expiry alerts, PDF reports, document uploads/OCR, and user/account audit history are not implemented yet.
