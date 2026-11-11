@@ -42,9 +42,15 @@ def export_xlsx(task: ScrapeTask) -> BytesIO:
             else:
                 width = 24
             sheet.column_dimensions[sheet.cell(row=1, column=index).column_letter].width = width
-        for row in writer.sheets["Lioran"].iter_rows():
-            for cell in row:
-                if cell.data_type == "f":
-                    cell.data_type = "s"
+        rejected = []
+        if isinstance(task.schema, dict):
+            rejected = task.schema.get("rejected") or []
+        if rejected:
+            pd.DataFrame(rejected).to_excel(writer, index=False, sheet_name="淘汰记录")
+        for sheet in writer.sheets.values():
+            for row in sheet.iter_rows():
+                for cell in row:
+                    if cell.data_type == "f":
+                        cell.data_type = "s"
     output.seek(0)
     return output

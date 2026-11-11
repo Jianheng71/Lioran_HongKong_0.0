@@ -192,7 +192,7 @@ $('confirm').addEventListener('click', async () => {
       spec: spec.spec
     }));
     bubble('Lioran', '<b>规格已锁定</b>：共 ' + spec.spec.length +
-      ' 条可执行判定规则。本阶段只做「理解 + 提问」这一层，抓取与筛选代码未改动、也未触发。', 'ai');
+      ' 条可执行判定规则。这一步只锁定规格，没有开始抓取。', 'ai');
     $('confirm').disabled = true;
     $('tip').textContent = '规格已锁定。返回提取页后，再点一次才会走现有抓取；这一步没有开始抓取。';
   } catch (error) {

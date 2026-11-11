@@ -8,10 +8,21 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 
+class LockedSpecItem(BaseModel):
+    """确认接口返回的一条可执行规则。"""
+
+    id: str = Field(min_length=1, max_length=80)
+    group: str = Field(default="", max_length=80)
+    key: str = Field(default="", max_length=80)
+    rule: str = Field(min_length=1, max_length=500)
+
+
 class ScrapeRequest(BaseModel):
     url: HttpUrl = Field(max_length=2048)
     requirement: str = Field(min_length=3, max_length=1000)
     max_pages: int = Field(default=500, ge=1, le=500)
+    session_id: str | None = Field(default=None, max_length=64)
+    spec: list[LockedSpecItem] | None = Field(default=None, max_length=64)
 
     @field_validator("requirement")
     @classmethod
@@ -31,6 +42,8 @@ class CrawlRequest(BaseModel):
     url: HttpUrl = Field(max_length=2048)
     requirement: str = Field(min_length=3, max_length=1000)
     max_pages: int = Field(default=500, ge=1, le=500)
+    session_id: str | None = Field(default=None, max_length=64)
+    spec: list[LockedSpecItem] | None = Field(default=None, max_length=64)
 
     @field_validator("requirement")
     @classmethod
@@ -58,6 +71,7 @@ class CrawlJob:
     result_task_id: str | None = None
     error: str | None = None
     stop_requested: bool = False
+    locked_spec: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -70,6 +84,7 @@ class ScrapeTask:
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     task_id: str = field(default_factory=lambda: str(uuid4()))
     feedback_row_index: int | None = None
+    locked_spec: list[dict[str, Any]] | None = None
 
     @property
     def total(self) -> int:

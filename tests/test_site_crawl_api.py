@@ -5,8 +5,24 @@ from unittest.mock import patch
 import httpx
 from pydantic import ValidationError
 
-from app.main import app
+from app.clarify import store
+from app.clarify_core import ClarifySession
+from app.main import _request_times, app
 from app.models import CrawlRequest, ScrapeTask
+
+
+def _lock_spec(url: str, requirement: str) -> dict:
+    session = ClarifySession(
+        url,
+        requirement,
+        "只要 2024 年以后的现行有效政策，别转发件，最多 20 条",
+    )
+    while not session.is_ready():
+        current = session.pending_group()
+        session.submit({item["id"]: item["options"][0] for item in current["questions"]})
+    spec = session.confirm()
+    store.add(session)
+    return spec
 
 
 class SiteCrawlApiTests(unittest.TestCase):
@@ -36,6 +52,8 @@ class SiteCrawlApiTests(unittest.TestCase):
                 )
 
             transport = httpx.ASGITransport(app=app)
+            locked = _lock_spec("https://example.test/", "title and link")
+            _request_times.clear()
             with (
                 patch("app.main.ensure_public_url", side_effect=lambda url: str(url)),
                 patch("app.main.crawl_site", side_effect=waiting_crawl),
@@ -50,6 +68,8 @@ class SiteCrawlApiTests(unittest.TestCase):
                             "url": "https://example.test/",
                             "requirement": "title and link",
                             "max_pages": 10,
+                            "session_id": locked["session_id"],
+                            "spec": locked["spec"],
                         },
                     )
                     self.assertEqual(created.status_code, 200)

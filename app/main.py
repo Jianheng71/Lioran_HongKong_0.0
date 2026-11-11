@@ -28,8 +28,9 @@ if getattr(sys, "frozen", False) and not (ROOT / "static").is_dir():
 app = FastAPI(title="Lioran", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
-# 抓取前的「先理解 → 再提问 → 用户拍板」门：只挂载新端点，不改任何抓取 / 筛选逻辑。
+# 澄清确认只产出规格。抓取接口要带上这份已锁定规格，并按它筛选。
 from app.clarify import router as clarify_router  # noqa: E402
+from app.spec_gate import SpecGateError, load_crawlable_spec  # noqa: E402
 
 app.include_router(clarify_router)
 logger = logging.getLogger(__name__)
@@ -121,6 +122,19 @@ async def _run_crawl_job(job: CrawlJob) -> None:
         _crawl_job_tasks.pop(job.crawl_id, None)
 
 
+def _require_locked_spec(payload) -> list[dict]:
+    try:
+        submitted = [item.model_dump() for item in payload.spec] if payload.spec else None
+        return load_crawlable_spec(
+            str(payload.url),
+            payload.requirement,
+            payload.session_id,
+            submitted,
+        )
+    except SpecGateError as error:
+        raise HTTPException(status_code=422, detail=error.message) from None
+
+
 def _check_rate_limit(client_ip: str) -> None:
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(minutes=1)
@@ -177,10 +191,11 @@ async def clarify_page() -> FileResponse:
 async def create_scrape(payload: ScrapeRequest, request: Request) -> dict:
     """Create one scrape task and return the five-row preview."""
     _check_rate_limit(request.client.host if request.client else "unknown")
+    locked = _require_locked_spec(payload)
     try:
         url = await asyncio.to_thread(ensure_public_url, str(payload.url))
         task = await asyncio.wait_for(
-            scrape(url, payload.requirement),
+            scrape(url, payload.requirement, None, locked),
             timeout=settings.total_timeout,
         )
     except asyncio.TimeoutError:
@@ -209,6 +224,7 @@ async def create_scrape(payload: ScrapeRequest, request: Request) -> dict:
 async def create_crawl(payload: CrawlRequest, request: Request) -> dict:
     """Start a bounded background crawl and return its progress identifier."""
     _check_rate_limit(request.client.host if request.client else "unknown")
+    locked = _require_locked_spec(payload)
     try:
         url = await asyncio.to_thread(ensure_public_url, str(payload.url))
     except ScrapeError as error:
@@ -217,6 +233,7 @@ async def create_crawl(payload: CrawlRequest, request: Request) -> dict:
         url=url,
         requirement=payload.requirement,
         max_pages=payload.max_pages,
+        locked_spec=locked,
     )
     _crawl_jobs[job.crawl_id] = job
     _crawl_job_tasks[job.crawl_id] = asyncio.create_task(_run_crawl_job(job))
@@ -279,7 +296,7 @@ async def feedback(payload: FeedbackRequest, request: Request) -> dict:
         raise HTTPException(status_code=422, detail="所选行不存在，请重新选择")
     try:
         updated = await asyncio.wait_for(
-            scrape(task.url, task.requirement, payload.correct_row_index),
+            scrape(task.url, task.requirement, payload.correct_row_index, task.locked_spec),
             timeout=settings.total_timeout,
         )
     except asyncio.TimeoutError:

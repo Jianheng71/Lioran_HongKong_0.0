@@ -12,6 +12,8 @@ hiddenimports = [
     "app.clarify",
     "app.clarify_core",
     "app.policy_template",
+    "app.spec_apply",
+    "app.spec_gate",
     "uvicorn.logging",
     "uvicorn.loops.auto",
     "uvicorn.protocols.http.auto",

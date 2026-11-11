@@ -114,8 +114,9 @@ function readLockedSpec() {
 
 function specMatches(spec, url, requirement) {
   if (!spec || !spec.confirmed_at || spec.pending !== 0) return false;
+  if (!spec.session_id || !Array.isArray(spec.spec) || spec.spec.length === 0) return false;
   if (spec.url !== url || spec.requirement !== requirement) return false;
-  return Array.isArray(spec.spec) && spec.spec.length > 0;
+  return true;
 }
 
 function formValues() {
@@ -278,20 +279,28 @@ function renderTable(columns, rows, total, taskId, feedbackEnabled = true) {
 async function startCrawl(event) {
   event.preventDefault();
   if (requestInProgress) return;
+  const locked = readLockedSpec();
+  const formData = formValues();
+  if (!specMatches(locked, formData.url, formData.requirement)) {
+    clearError();
+    window.location.assign(clarifyHref(formData));
+    return;
+  }
   clearError();
   resultsPanel.classList.add("hidden");
   progressPanel.classList.add("hidden");
   activeCrawlId = null;
   setLoading(true, t("working"));
-  const values = new FormData(form);
   try {
     let progress = await api("/api/crawl", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        url: values.get("url"),
-        requirement: values.get("requirement"),
-        max_pages: Number(values.get("max_pages")),
+        url: formData.url,
+        requirement: formData.requirement,
+        max_pages: Number(formData.maxPages),
+        session_id: locked.session_id,
+        spec: locked.spec,
       }),
     });
     activeCrawlId = progress.crawl_id;
