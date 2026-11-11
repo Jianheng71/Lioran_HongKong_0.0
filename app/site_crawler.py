@@ -17,6 +17,12 @@ from app.config import settings
 from app.fetcher import ScrapeError, check_robots, fetch_page
 from app.local_llm import map_raw_fields
 from app.models import CrawlJob, ScrapeTask
+from app.spec_apply import (
+    annotate_schema,
+    apply_spec_to_records,
+    shape_output,
+    wants_detail_pages,
+)
 
 logger = logging.getLogger(__name__)
 MAX_CRAWL_DEPTH = 3
@@ -72,6 +78,8 @@ class PageAnalysis:
     page_type: str = "detail"
     records: list[RawRecord] = field(default_factory=list)
     links: list[tuple[str, str]] = field(default_factory=list)
+    body_date: str = ""
+    body_summary: str = ""
 
 
 def _host_key(host: str | None) -> str:
@@ -332,12 +340,23 @@ def analyze_page(source_url: str, source_html: str, section_hint: str = "") -> P
             continue
         seen_links.add(canonical)
         links.append((canonical, label))
+    body_date = ""
+    body_summary = ""
+    if len(records) < 3:
+        page_text = _visible_text(document)
+        found = DATE_PATTERN.search(page_text)
+        body_date = found.group(0).strip() if found else ""
+        paragraphs = document.xpath("//article//p|//main//p|//p")
+        if paragraphs:
+            body_summary = " ".join(paragraphs[0].text_content().split())[:400]
     return PageAnalysis(
         title=title,
         section=section,
         page_type="list" if len(records) >= 3 else "detail",
         records=records,
         links=links,
+        body_date=body_date,
+        body_summary=body_summary,
     )
 
 
@@ -349,6 +368,16 @@ def _is_pagination(label: str, url: str) -> bool:
         or bool(re.search(r"(?:page|p|index|list)[_-]?\d+", path))
         or any(key in urlsplit(url).query.lower() for key in ("page=", "p="))
     )
+
+
+def _enrich_detail(records: dict[str, RawRecord], page_url: str, analysis: PageAnalysis) -> None:
+    record = records.get(_canonical_url(page_url))
+    if record is None:
+        return
+    if not record.published_at and analysis.body_date:
+        record.published_at = analysis.body_date
+    if not record.summary and analysis.body_summary:
+        record.summary = analysis.body_summary
 
 
 def _should_queue(url: str, label: str, current_url: str) -> bool:
@@ -494,16 +523,28 @@ async def crawl_site(job: CrawlJob) -> ScrapeTask:
                         records_by_link.setdefault(record.link, record)
             else:
                 job.detail_pages += 1
+                if wants_detail_pages(job.locked_spec):
+                    _enrich_detail(records_by_link, page_url, analysis)
             job.rows_count = len(records_by_link)
             if depth >= MAX_CRAWL_DEPTH or analysis.page_type != "list":
                 continue
-            for discovered_url, label in analysis.links:
+            discovered = [(link, label, False) for link, label in analysis.links]
+            if wants_detail_pages(job.locked_spec) and depth > 0:
+                discovered.extend((record.link, record.title, True) for record in analysis.records)
+            record_links = {record.link for record in analysis.records}
+            for discovered_url, label, is_record in discovered:
                 canonical = _canonical_url(discovered_url)
+                is_record_link = is_record or canonical in record_links
+                allowed = (
+                    wants_detail_pages(job.locked_spec)
+                    if is_record_link
+                    else _should_queue(canonical, label, page_url)
+                )
                 if (
                     canonical in queued
                     or canonical in visited
                     or not _same_site(canonical, root)
-                    or not _should_queue(canonical, label, page_url)
+                    or not allowed
                 ):
                     continue
                 queued.add(canonical)
@@ -516,29 +557,40 @@ async def crawl_site(job: CrawlJob) -> ScrapeTask:
         job.status = "stopped"
     job.current_section = "正在整理字段和合并结果"
     job.status = "mapping"
-    records = list(records_by_link.values())
+    spec = [dict(item) for item in (job.locked_spec or [])]
+    records = [record.as_dict() for record in records_by_link.values()]
+    rejected: list[dict] = []
+    if spec:
+        records, rejected = apply_spec_to_records(records, spec)
     columns, rows, mapping = await asyncio.to_thread(
         map_raw_fields,
         job.requirement,
-        [record.as_dict() for record in records],
+        records,
     )
+    if spec:
+        columns, rows = shape_output(columns, rows, spec)
     job.rows_count = len(rows)
     task = ScrapeTask(
         url=job.url,
         requirement=job.requirement,
         columns=columns,
         rows=rows,
-        schema={
-            "template": "site_crawl",
-            "max_depth": MAX_CRAWL_DEPTH,
-            "max_pages": job.max_pages,
-            "pages_crawled": job.pages_crawled,
-            "list_pages": job.list_pages,
-            "detail_pages": job.detail_pages,
-            "sections_crawled": len(job.sections),
-            "errors": errors,
-            "field_mapping": mapping,
-        },
+        locked_spec=spec or None,
+        schema=annotate_schema(
+            {
+                "template": "site_crawl",
+                "max_depth": MAX_CRAWL_DEPTH,
+                "max_pages": job.max_pages,
+                "pages_crawled": job.pages_crawled,
+                "list_pages": job.list_pages,
+                "detail_pages": job.detail_pages,
+                "sections_crawled": len(job.sections),
+                "errors": errors,
+                "field_mapping": mapping,
+            },
+            spec,
+            rejected,
+        ),
     )
     job.current_section = ""
     job.status = "stopped" if job.stop_requested else "completed"

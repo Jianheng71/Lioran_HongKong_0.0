@@ -15,6 +15,7 @@ from app.cleaner import (
 from app.config import settings
 from app.fetcher import ScrapeError, check_robots, fetch_page
 from app.models import ScrapeTask
+from app.spec_apply import apply_spec_to_table, annotate_schema
 from app.understander import FALLBACK_SELECTORS, generate_schema, understand_page
 
 
@@ -73,7 +74,36 @@ def _validated_schema(schema: dict[str, Any], page: Any) -> dict[str, Any]:
     return schema
 
 
-async def scrape(url: str, requirement: str, feedback_row_index: int | None = None) -> ScrapeTask:
+def _finish_task(
+    url: str,
+    requirement: str,
+    columns: list[str],
+    rows: list[list[str]],
+    schema: dict[str, Any],
+    feedback_row_index: int | None,
+    locked_spec: list[dict[str, Any]] | None,
+) -> ScrapeTask:
+    rejected: list[dict] = []
+    stored = [dict(item) for item in locked_spec] if locked_spec else None
+    if stored:
+        columns, rows, rejected = apply_spec_to_table(columns, rows, stored)
+    return ScrapeTask(
+        url=url,
+        requirement=requirement,
+        columns=columns,
+        rows=rows,
+        schema=annotate_schema(schema, stored, rejected),
+        feedback_row_index=feedback_row_index,
+        locked_spec=stored,
+    )
+
+
+async def scrape(
+    url: str,
+    requirement: str,
+    feedback_row_index: int | None = None,
+    locked_spec: list[dict[str, Any]] | None = None,
+) -> ScrapeTask:
     """按理解、校验、提取顺序处理一个公开网页，并限制重试次数。"""
     await asyncio.to_thread(check_robots, url)
     try:
@@ -134,13 +164,14 @@ async def scrape(url: str, requirement: str, feedback_row_index: int | None = No
             schema = _validated_schema(schema, page)
             columns, rows = await asyncio.to_thread(_extract_rows, page, schema, page_url)
             if rows:
-                return ScrapeTask(
-                    url=url,
-                    requirement=requirement,
-                    columns=columns,
-                    rows=rows,
-                    schema=schema,
-                    feedback_row_index=feedback_row_index,
+                return _finish_task(
+                    url,
+                    requirement,
+                    columns,
+                    rows,
+                    schema,
+                    feedback_row_index,
+                    locked_spec,
                 )
             last_error = "该页面未提取到数据"
         except Exception as error:
@@ -172,13 +203,14 @@ async def scrape(url: str, requirement: str, feedback_row_index: int | None = No
                 except Exception:
                     continue
                 if rows:
-                    return ScrapeTask(
-                        url=url,
-                        requirement=requirement,
-                        columns=columns,
-                        rows=rows,
-                        schema=fallback_schema,
-                        feedback_row_index=feedback_row_index,
+                    return _finish_task(
+                        url,
+                        requirement,
+                        columns,
+                        rows,
+                        fallback_schema,
+                        feedback_row_index,
+                        locked_spec,
                     )
 
         if not retried_with_browser and attempt + 1 < settings.max_retries:
