@@ -167,6 +167,12 @@ async def index() -> FileResponse:
     return FileResponse(ROOT / "static" / "index.html")
 
 
+@app.get("/clarify")
+async def clarify_page() -> FileResponse:
+    """抓取前澄清页，与首页共用桌面端已经解析好的 static 根目录。"""
+    return FileResponse(ROOT / "static" / "clarify.html")
+
+
 @app.post("/api/scrape")
 async def create_scrape(payload: ScrapeRequest, request: Request) -> dict:
     """Create one scrape task and return the five-row preview."""

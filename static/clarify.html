@@ -71,6 +71,7 @@
     #rules b{color:var(--ink);font-weight:500}
     .confirm{width:100%;border:0;border-radius:10px;padding:11px;font-size:13px;font-family:inherit;cursor:pointer;background:var(--green);color:#fff}
     .confirm:disabled{background:#e6e9ee;color:#9aa1ad;cursor:default}
+    header a{margin-left:auto;color:var(--muted);font-size:13px;text-decoration:none}
     .tip{text-align:center;font-size:11px;color:var(--muted);margin:8px 0 0}
     .err{color:#a32d2d;font-size:12px;padding:8px 16px}
   </style>
@@ -80,17 +81,18 @@
   <header>
     <div class="brand"><span class="mark">L</span>Lioran</div>
     <p>政策法规 · 先理解 → 再逐项问清 → 用户拍板 → 才放行抓取</p>
+    <a id="back-home" href="/">返回提取</a>
   </header>
   <div class="layout">
     <section class="panel">
       <div class="panel-head"><span>理解与问答</span><span style="font-weight:400;color:var(--muted);font-size:11px" id="phase">待开始</span></div>
       <div class="inputs">
         <label for="url">网页链接</label>
-        <input id="url" type="text" value="https://example.gov.cn/policy" placeholder="公开的政策法规栏目地址">
+        <input id="url" type="text" placeholder="公开的政策法规栏目地址">
         <label for="requirement">要的信息（要抓什么）</label>
-        <textarea id="requirement" placeholder="例如：政策法规库里所有文件的标题、发文字号、发文机关、成文日期、原文链接、效力状态">政策法规库里所有文件的标题、发文字号、发文机关、成文日期、原文链接、效力状态</textarea>
+        <textarea id="requirement" placeholder="例如：政策法规库里所有文件的标题、发文字号、发文机关、成文日期、原文链接、效力状态"></textarea>
         <label for="review">审查信息（筛选标准）</label>
-        <textarea id="review" placeholder="例如：只要 2024 年以后的现行有效政策，别转发件，最多 20 条">只要 2024 年以后的现行有效政策，别转发件，最多 20 条</textarea>
+        <textarea id="review" placeholder="例如：只要 2024 年以后的现行有效政策，别转发件，最多 20 条"></textarea>
         <button class="primary" id="start">开始理解（不抓取）</button>
       </div>
       <div class="chat" id="chat"></div>

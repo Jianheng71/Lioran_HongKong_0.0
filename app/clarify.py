@@ -10,10 +10,8 @@ import json
 import os
 import re
 import urllib.request
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.clarify_core import (
@@ -24,7 +22,6 @@ from app.clarify_core import (
 )
 from app.policy_template import ATOMS
 
-ROOT = Path(__file__).resolve().parent.parent
 router = APIRouter()
 store = SessionStore()
 
@@ -122,11 +119,6 @@ def _get(session_id: str) -> ClarifySession:
         return store.get(session_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="澄清会话不存在或已过期") from None
-
-
-@router.get("/clarify")
-async def clarify_page() -> FileResponse:
-    return FileResponse(ROOT / "static" / "clarify.html")
 
 
 @router.post("/api/clarify")

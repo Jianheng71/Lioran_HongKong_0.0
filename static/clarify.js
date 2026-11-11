@@ -163,6 +163,7 @@ $('start').addEventListener('click', async () => {
       requirement: $('requirement').value.trim(),
       review: $('review').value.trim()
     });
+    sessionStorage.removeItem('lioran-clarify-spec');
     $('chat').innerHTML = '';
     state = null;
     lastGroup = null;
@@ -181,10 +182,19 @@ $('confirm').addEventListener('click', async () => {
   clearErr();
   try {
     const spec = await api('/api/clarify/' + sessionId + '/confirm', {});
+    sessionStorage.setItem('lioran-clarify-spec', JSON.stringify({
+      url: spec.url,
+      requirement: spec.requirement,
+      review: spec.review,
+      session_id: spec.session_id,
+      confirmed_at: spec.confirmed_at,
+      pending: 0,
+      spec: spec.spec
+    }));
     bubble('Lioran', '<b>规格已锁定</b>：共 ' + spec.spec.length +
       ' 条可执行判定规则。本阶段只做「理解 + 提问」这一层，抓取与筛选代码未改动、也未触发。', 'ai');
     $('confirm').disabled = true;
-    $('tip').textContent = '规格已锁定，等待下一阶段接入抓取';
+    $('tip').textContent = '规格已锁定。返回提取页后，再点一次才会走现有抓取；这一步没有开始抓取。';
   } catch (error) {
     showErr(error.message);
   }
@@ -213,6 +223,7 @@ $('send-note').addEventListener('click', async () => {
       const ids = [...box.querySelectorAll('input:checked')].map((i) => i.value);
       try {
         const next = await api('/api/clarify/' + sessionId + '/recheck', { item_ids: ids });
+        if (next.pending > 0) sessionStorage.removeItem('lioran-clarify-spec');
         lastGroup = null;
         shownReady = false;
         render(next);
@@ -228,3 +239,24 @@ $('send-note').addEventListener('click', async () => {
 $('note').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') $('send-note').click();
 });
+
+const incoming = new URLSearchParams(location.search);
+if (incoming.get('url')) $('url').value = incoming.get('url');
+if (incoming.get('requirement')) $('requirement').value = incoming.get('requirement');
+if (incoming.has('review')) $('review').value = incoming.get('review');
+
+function syncBackHome() {
+  const params = new URLSearchParams();
+  const url = $('url').value.trim();
+  const requirement = $('requirement').value.trim();
+  if (url) params.set('url', url);
+  if (requirement) params.set('requirement', requirement);
+  const maxPages = incoming.get('max_pages');
+  if (maxPages) params.set('max_pages', maxPages);
+  const query = params.toString();
+  $('back-home').href = query ? '/?' + query : '/';
+}
+
+syncBackHome();
+['url', 'requirement'].forEach((id) => $(id).addEventListener('input', syncBackHome));
+if (incoming.get('url') && incoming.get('requirement')) $('start').click();
