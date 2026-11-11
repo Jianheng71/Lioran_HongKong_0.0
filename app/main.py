@@ -27,6 +27,11 @@ if getattr(sys, "frozen", False) and not (ROOT / "static").is_dir():
         ROOT = macos_resources
 app = FastAPI(title="Lioran", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+
+# 抓取前的「先理解 → 再提问 → 用户拍板」门：只挂载新端点，不改任何抓取 / 筛选逻辑。
+from app.clarify import router as clarify_router  # noqa: E402
+
+app.include_router(clarify_router)
 logger = logging.getLogger(__name__)
 
 _tasks: dict[str, ScrapeTask] = {}
@@ -160,6 +165,12 @@ async def unexpected_error_handler(_: Request, error: Exception) -> JSONResponse
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(ROOT / "static" / "index.html")
+
+
+@app.get("/clarify")
+async def clarify_page() -> FileResponse:
+    """抓取前澄清页，与首页共用桌面端已经解析好的 static 根目录。"""
+    return FileResponse(ROOT / "static" / "clarify.html")
 
 
 @app.post("/api/scrape")

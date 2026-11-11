@@ -7,6 +7,9 @@ const copy = {
     urlLabel: "网页链接",
     requirementLabel: "你想提取什么？",
     start: "开始抓取",
+    clarifyFirst: "先问清楚",
+    clarifyHint: "政策法规先逐项问清，全部由你拍板。这一步只生成规格，不会开始抓取。",
+    specLocked: "规格已锁定，抓取还没开始。再点一次才会走现有抓取。",
     loading: "AI 正在看懂页面...",
     maxPagesLabel: "最大页数",
     crawlLimitHint: "同域名 · 最多 3 层 · 5 个并发",
@@ -42,6 +45,9 @@ const copy = {
     urlLabel: "Web page URL",
     requirementLabel: "What would you like to extract?",
     start: "Start scraping",
+    clarifyFirst: "Clarify first",
+    clarifyHint: "Policy documents are confirmed item by item, in Chinese. This step only writes a specification and does not start a scrape.",
+    specLocked: "Specification locked. Scraping has not started. Click again to run the existing scrape.",
     loading: "AI is understanding the page...",
     maxPagesLabel: "Maximum pages",
     crawlLimitHint: "Same host · up to 3 levels · 5 concurrent pages",
@@ -96,6 +102,58 @@ function t(key) {
   return copy[language][key];
 }
 
+const CLARIFY_SPEC_KEY = "lioran-clarify-spec";
+
+function readLockedSpec() {
+  try {
+    return JSON.parse(sessionStorage.getItem(CLARIFY_SPEC_KEY) || "null");
+  } catch (error) {
+    return null;
+  }
+}
+
+function specMatches(spec, url, requirement) {
+  if (!spec || !spec.confirmed_at || spec.pending !== 0) return false;
+  if (spec.url !== url || spec.requirement !== requirement) return false;
+  return Array.isArray(spec.spec) && spec.spec.length > 0;
+}
+
+function formValues() {
+  const values = new FormData(form);
+  return {
+    url: String(values.get("url") || "").trim(),
+    requirement: String(values.get("requirement") || "").trim(),
+    maxPages: String(values.get("max_pages") || "").trim(),
+  };
+}
+
+function clarifyHref(values) {
+  const params = new URLSearchParams();
+  if (values.url) params.set("url", values.url);
+  if (values.requirement) params.set("requirement", values.requirement);
+  if (values.maxPages) params.set("max_pages", values.maxPages);
+  const query = params.toString();
+  return query ? `/clarify?${query}` : "/clarify";
+}
+
+function scrapeReady() {
+  const values = formValues();
+  return specMatches(readLockedSpec(), values.url, values.requirement);
+}
+
+function startLabel() {
+  return scrapeReady() ? t("start") : t("clarifyFirst");
+}
+
+function refreshGate() {
+  const ready = scrapeReady();
+  const hint = document.querySelector("#clarify-hint");
+  buttonLabel.dataset.i18n = ready ? "start" : "clarifyFirst";
+  hint.dataset.i18n = ready ? "specLocked" : "clarifyHint";
+  hint.textContent = t(hint.dataset.i18n);
+  if (!requestInProgress) buttonLabel.textContent = t(buttonLabel.dataset.i18n);
+}
+
 function renderLanguage() {
   document.documentElement.lang = language === "zh" ? "zh-Hans" : "en";
   document.querySelectorAll("[data-i18n]").forEach((element) => {
@@ -106,6 +164,7 @@ function renderLanguage() {
   langButton.textContent = t("language");
   if (requestInProgress) buttonLabel.textContent = t("loading");
   document.title = language === "zh" ? "Lioran - 网页数据提取" : "Lioran - Web Data Extraction";
+  refreshGate();
 }
 
 function setLoading(loading, message = "") {
@@ -113,7 +172,7 @@ function setLoading(loading, message = "") {
   submitButton.disabled = loading;
   stopButton.disabled = !loading;
   stopButton.classList.toggle("hidden", !loading);
-  buttonLabel.textContent = loading ? t("loading") : t("start");
+  buttonLabel.textContent = loading ? t("loading") : startLabel();
   spinner.classList.toggle("hidden", !loading);
   statusMessage.textContent = message;
 }
@@ -262,7 +321,18 @@ async function startCrawl(event) {
   }
 }
 
-form.addEventListener("submit", startCrawl);
+form.addEventListener("submit", (event) => {
+  if (!scrapeReady()) {
+    event.preventDefault();
+    clearError();
+    window.location.assign(clarifyHref(formValues()));
+    return;
+  }
+  startCrawl(event);
+});
+["#url-input", "#requirement-input"].forEach((selector) => {
+  document.querySelector(selector).addEventListener("input", refreshGate);
+});
 stopButton.addEventListener("click", async () => {
   if (!activeCrawlId || stopButton.disabled) return;
   stopButton.disabled = true;
@@ -308,5 +378,14 @@ document.querySelector("#download-button").addEventListener("click", async () =>
     showError(error.message || t("downloadError"));
   }
 });
+
+const incoming = new URLSearchParams(window.location.search);
+if (incoming.get("url")) document.querySelector("#url-input").value = incoming.get("url");
+if (incoming.get("requirement")) {
+  document.querySelector("#requirement-input").value = incoming.get("requirement");
+}
+if (incoming.get("max_pages")) {
+  document.querySelector("#max-pages-input").value = incoming.get("max_pages");
+}
 
 renderLanguage();

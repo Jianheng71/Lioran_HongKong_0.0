@@ -7,7 +7,15 @@ from PyInstaller.utils.hooks import collect_all
 ROOT = Path(SPECPATH).parent
 datas = [(str(ROOT / "static"), "static")]
 binaries = []
-hiddenimports = ["app.main", "uvicorn.logging", "uvicorn.loops.auto", "uvicorn.protocols.http.auto"]
+hiddenimports = [
+    "app.main",
+    "app.clarify",
+    "app.clarify_core",
+    "app.policy_template",
+    "uvicorn.logging",
+    "uvicorn.loops.auto",
+    "uvicorn.protocols.http.auto",
+]
 
 for package in (
     "crawl4ai",
